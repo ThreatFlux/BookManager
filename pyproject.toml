@@ -1,0 +1,16 @@
+# File: pyproject.toml
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[tool.black]
+line-length = 120
+target-version = ['py38']
+include = '\.pyi?$'
+
+[tool.pytest.ini_options]
+addopts = "-ra -q --cov=book_manager --cov-report=xml"
+testpaths = ["tests"]
+
+[tool.setuptools_scm]
+write_to = "book_manager/_version.py"

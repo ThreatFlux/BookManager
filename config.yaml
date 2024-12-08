@@ -1,0 +1,22 @@
+stopwords:
+  - "the"
+  - "and"
+  - "to"
+  - "of"
+  - "a"
+  - "in"
+  - "that"
+  - "is"
+  - "for"
+  - "with"
+  - "on"
+  - "as"
+  - "it"
+  - "at"
+  - "by"
+
+top_words_count: 5
+pandoc_output_formats: [pdf, docx, epub]
+outline_file: "3_Plot_and_Outline/outline.md"
+drafts_dir: "4_Scenes_and_Chapters/Drafts"
+compiled_dir: "Compiled"

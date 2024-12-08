@@ -1,0 +1,15 @@
+coverage:
+ status:
+   project:
+     default:
+       target: 80%
+       threshold: 2%
+   patch:
+     default:
+       target: 80%
+       threshold: 2%
+
+ignore:
+ - "tests/"
+ - "setup.py"
+ - "book_manager/_version.py"
