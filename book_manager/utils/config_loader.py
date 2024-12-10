@@ -7,9 +7,9 @@ Configuration loader with validation and caching.
 """
 
 import os
-import yaml
 from typing import Dict, Any, Optional
-from pathlib import Path
+
+import yaml
 from ..utils.logging_setup import get_logger
 
 logger = get_logger(__name__)
@@ -93,7 +93,7 @@ def load_config(config_path: str = "config.yaml") -> None:
                 if data is None:
                     data = {}
         else:
-            logger.warning(f"Config file not found: {config_path}")
+            logger.warning("Config file not found: %s", config_path)
             data = {}
 
         # Merge with defaults
@@ -106,7 +106,7 @@ def load_config(config_path: str = "config.yaml") -> None:
             logger.info("Configuration loaded successfully")
 
     except (yaml.YAMLError, IOError) as e:
-        logger.error(f"Error loading config: {e}")
+        logger.error("Error loading config: %s", e)
         raise
 
 

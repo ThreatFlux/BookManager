@@ -31,18 +31,17 @@ import sys
 import time
 import argparse
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple
 from datetime import datetime
 
 import pytest
 import yaml
+from tqdm import tqdm
 
-from book_manager.utils.config_loader import load_config, get_config, reload_config
+from book_manager.utils.config_loader import load_config, get_config
 from book_manager.utils.logging_setup import get_logger
 from book_manager.structure.dir_scanner import scan_project
-from book_manager.analysis.text_analysis import analyze_scene, get_analyzer
+from book_manager.analysis.text_analysis import analyze_scene
 from book_manager.compile.compiler import batch_compile, CompilationError
-from tqdm import tqdm
 
 logger = get_logger(__name__)
 
@@ -107,20 +106,18 @@ def ensure_config(args: argparse.Namespace) -> None:
             # Set readable/writable for user only
             config_path.chmod(0o600)
 
-            logger.info(f"Created default configuration at {config_path}")
+            logger.info("Created default configuration at %s", config_path)
 
         # Validate config can be read
         with open(config_path, "r", encoding="utf-8") as f:
             yaml.safe_load(f)
 
     except (OSError, yaml.YAMLError) as e:
-        raise BookManagerError(f"Configuration error: {e}")
+        raise BookManagerError(f"Configuration error: {e}") from e
 
 
 class BookManagerError(Exception):
     """Base exception for book manager errors."""
-
-    pass
 
 
 class CommandLineParser:
@@ -168,7 +165,7 @@ class CommandLineParser:
 # And in test_main.py
 def test_invalid_arguments(cli_parser):
     """Test handling of invalid argument combinations."""
-    args = cli_parser.parser.parse_args(["--verbose", "--quiet"])
+    cli_parser.parser.parse_args(["--verbose", "--quiet"])
 
     with pytest.raises(ValueError):
         cli_parser.parse()  # This will raise ValueError due to conflicting args
@@ -207,7 +204,7 @@ class BookManager:
             Path(self.config["outline_file"]).parent.mkdir(parents=True, exist_ok=True)
 
         except Exception as e:
-            raise BookManagerError(f"Setup failed: {e}")
+            raise BookManagerError(f"Setup failed: {e}") from e
 
     def scan_project(self) -> None:
         """
@@ -269,7 +266,7 @@ class BookManager:
                     act_words += word_count
                     total_todos += len(todos)
 
-                    rel_path = os.path.relpath(scene_path, Path(self.config["outline_file"]).parent)
+                    os.path.relpath(scene_path, Path(self.config["outline_file"]).parent)
 
                     lines.append(f"\n#### {scene_path.stem}")
                     lines.append(f"- Words: {word_count:,}")
@@ -288,7 +285,7 @@ class BookManager:
             lines.append(f"\nBook {book_num} total words: {book_words:,}")
             total_words += book_words
 
-        lines.append(f"\n## Project Statistics")
+        lines.append("\n## Project Statistics")
         lines.append(f"- Total scenes: {total_scenes:,}")
         lines.append(f"- Total word count: {total_words:,}")
         lines.append(f"- Outstanding TODOs: {total_todos:,}")
@@ -308,9 +305,9 @@ class BookManager:
         try:
             outline_path = Path(self.config["outline_file"])
             outline_path.write_text(content, encoding="utf-8")
-            logger.info(f"Outline saved to {outline_path}")
+            logger.info("Outline saved to %s", outline_path)
         except IOError as e:
-            raise BookManagerError(f"Failed to save outline: {e}")
+            raise BookManagerError(f"Failed to save outline: {e}") from e
 
     def compile_manuscript(self) -> None:
         """
@@ -322,15 +319,14 @@ class BookManager:
         if not self.args.no_compile and not self.args.report_only:
             formats = self.args.output_format or self.config["pandoc_output_formats"]
 
-            logger.info(f"Compiling manuscript to: {', '.join(formats)}")
-
+            logger.info("Compiling manuscript to: %s", ", ".join(formats))
             try:
                 success, files = batch_compile(self.structure, formats=formats)
                 if not success:
                     raise BookManagerError("Manuscript compilation failed")
-                logger.info("Created files: " + ", ".join(files))
+                logger.info("Created files: %s", ", ".join(files))
             except CompilationError as e:
-                raise BookManagerError(f"Compilation error: {e}")
+                raise BookManagerError(f"Compilation error: {e}") from e
 
     def run(self) -> None:
         """
@@ -351,7 +347,7 @@ class BookManager:
             self.compile_manuscript()
 
             duration = time.time() - start_time
-            logger.info(f"Book manager completed successfully in {duration:.1f}s")
+            logger.info("Book manager completed successfully in %.1fs", duration)
 
         except BookManagerError as e:
             logger.error(str(e))
@@ -371,8 +367,21 @@ def main() -> int:
         manager.run()
         return 0
 
-    except Exception as e:
-        logger.error(f"Error: {e}")
+    except BookManagerError as e:
+        logger.error("A book manager error occurred: %s", e)
+        if args.verbose:
+            logger.exception("Detailed error information:")
+        return 1
+    except (ValueError, OSError) as e:
+        logger.error("Configuration or system error: %s", e)
+        if args.verbose:
+            logger.exception("Detailed error information:")
+        return 1
+    except KeyboardInterrupt:
+        logger.info("Operation cancelled by user")
+        return 1
+    except Exception as e:  # pylint: disable=broad-except
+        logger.critical("An unexpected error occurred: %s", e)
         if args.verbose:
             logger.exception("Detailed error information:")
         return 1

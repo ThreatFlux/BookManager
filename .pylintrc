@@ -1,9 +1,9 @@
 [MASTER]
-py-version = 3.8
+py-version = 3.10
 ignore = _version.py
 
 [MESSAGES CONTROL]
-disable = C0111,C0103,C0303,C0330,W0311,W0603,W0621,R0903,R0913,R0914
+disable = C0111,C0103,C0303,W0311,W0603,W0621,R0903,R0913,R0914
 
 [FORMAT]
 max-line-length = 120

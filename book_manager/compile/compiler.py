@@ -27,6 +27,7 @@ from weasyprint.text.fonts import FontConfiguration
 from tqdm import tqdm
 
 from ..utils.logging_setup import get_logger
+from ..utils.config_loader import get_config
 
 logger = get_logger(__name__)
 __all__ = ["DocumentCompiler", "CompilationError", "compile_manuscript", "batch_compile"]
@@ -35,12 +36,17 @@ __all__ = ["DocumentCompiler", "CompilationError", "compile_manuscript", "batch_
 class CompilationError(Exception):
     """Custom exception for compilation errors."""
 
-    pass
-
 
 @dataclass
 class PaperFormat:
-    """Paper format configuration."""
+    """
+    Paper format configuration.
+
+    Attributes:
+        name: Standard paper format name (e.g., 'letter', 'a4')
+        width: Page width with units
+        height: Page height with units
+    """
 
     name: str
     width: str
@@ -48,7 +54,15 @@ class PaperFormat:
 
     @classmethod
     def from_name(cls, name: str) -> "PaperFormat":
-        """Create format from standard name."""
+        """
+        Create format from standard name.
+
+        Args:
+            name: Standard paper format name
+
+        Returns:
+            PaperFormat: Configured paper format
+        """
         formats = {
             "letter": cls("letter", "8.5in", "11in"),
             "legal": cls("legal", "8.5in", "14in"),
@@ -59,35 +73,79 @@ class PaperFormat:
 
 
 @dataclass
+class FontSettings:
+    """
+    Font-related settings.
+
+    Attributes:
+        body_font: Font family for body text
+        heading_font: Font family for headings
+        code_font: Font family for code blocks
+        font_size: Base font size with units
+    """
+
+    body_font: str
+    heading_font: str
+    code_font: str
+    font_size: str
+
+
+@dataclass
+class ColorSettings:
+    """
+    Color-related settings.
+
+    Attributes:
+        heading_color: Color for headings
+        text_color: Color for body text
+        link_color: Color for hyperlinks
+        code_background: Background color for code blocks
+    """
+
+    heading_color: str
+    text_color: str
+    link_color: str
+    code_background: str
+
+
+@dataclass
 class DocumentStyle:
-    """Document styling configuration."""
+    """
+    Document styling configuration.
 
-    # Font settings
-    body_font: str = field(default="")
-    heading_font: str = field(default="")
-    code_font: str = field(default="")
-    font_size: str = field(default="")
+    Attributes:
+        fonts: Font-related settings
+        colors: Color-related settings
+        paper_format: Paper size configuration
+        margin_top: Top margin with units
+        margin_right: Right margin with units
+        margin_bottom: Bottom margin with units
+        margin_left: Left margin with units
+    """
 
-    # Page settings
+    fonts: FontSettings
+    colors: ColorSettings
     paper_format: PaperFormat = field(default_factory=lambda: PaperFormat.from_name("letter"))
     margin_top: str = field(default="1in")
     margin_right: str = field(default="1in")
     margin_bottom: str = field(default="1in")
     margin_left: str = field(default="1in")
 
-    # Colors
-    heading_color: str = field(default="#000000")
-    text_color: str = field(default="#000000")
-    link_color: str = field(default="#0366d6")
-    code_background: str = field(default="#f6f8fa")
-
     @classmethod
     def from_config(cls, config: Dict) -> "DocumentStyle":
-        """Create style from config dictionary."""
+        """
+        Create style from config dictionary.
+
+        Args:
+            config: Configuration dictionary
+
+        Returns:
+            DocumentStyle: Configured document style
+        """
         style_config = config.get("document_style", {})
         env_prefix = "BOOK_MANAGER_"
 
-        return cls(
+        fonts = FontSettings(
             body_font=os.getenv(
                 f"{env_prefix}BODY_FONT",
                 style_config.get("body_font", "'-apple-system', BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif"),
@@ -98,6 +156,18 @@ class DocumentStyle:
             ),
             code_font=os.getenv(f"{env_prefix}CODE_FONT", style_config.get("code_font", "'Courier New', monospace")),
             font_size=os.getenv(f"{env_prefix}FONT_SIZE", style_config.get("font_size", "12pt")),
+        )
+
+        colors = ColorSettings(
+            heading_color=os.getenv(f"{env_prefix}HEADING_COLOR", style_config.get("heading_color", "#000000")),
+            text_color=os.getenv(f"{env_prefix}TEXT_COLOR", style_config.get("text_color", "#000000")),
+            link_color=os.getenv(f"{env_prefix}LINK_COLOR", style_config.get("link_color", "#0366d6")),
+            code_background=os.getenv(f"{env_prefix}CODE_BACKGROUND", style_config.get("code_background", "#f6f8fa")),
+        )
+
+        return cls(
+            fonts=fonts,
+            colors=colors,
             paper_format=PaperFormat.from_name(
                 os.getenv(f"{env_prefix}PAPER_FORMAT", style_config.get("paper_format", "letter"))
             ),
@@ -105,25 +175,122 @@ class DocumentStyle:
             margin_right=os.getenv(f"{env_prefix}MARGIN_RIGHT", style_config.get("margin_right", "1in")),
             margin_bottom=os.getenv(f"{env_prefix}MARGIN_BOTTOM", style_config.get("margin_bottom", "1in")),
             margin_left=os.getenv(f"{env_prefix}MARGIN_LEFT", style_config.get("margin_left", "1in")),
-            heading_color=os.getenv(f"{env_prefix}HEADING_COLOR", style_config.get("heading_color", "#000000")),
-            text_color=os.getenv(f"{env_prefix}TEXT_COLOR", style_config.get("text_color", "#000000")),
-            link_color=os.getenv(f"{env_prefix}LINK_COLOR", style_config.get("link_color", "#0366d6")),
-            code_background=os.getenv(f"{env_prefix}CODE_BACKGROUND", style_config.get("code_background", "#f6f8fa")),
         )
 
 
+class ElementProcessor:
+    """
+    Handles processing of different HTML elements for DOCX conversion.
+
+    Attributes:
+        style: Document styling configuration
+    """
+
+    def __init__(self, style: DocumentStyle):
+        """
+        Initialize processor with document style.
+
+        Args:
+            style: Document styling configuration
+        """
+        self.style = style
+
+    def process_heading(self, doc: Document, element: BeautifulSoup) -> None:
+        """
+        Process heading elements.
+
+        Args:
+            doc: Document being constructed
+            element: BeautifulSoup heading element
+        """
+        level = int(element.name[1])
+        paragraph = doc.add_paragraph(style=f"Heading {level}")
+        text = element.get_text().strip()
+        paragraph.add_run(text)
+
+    def process_paragraph(self, doc: Document, element: BeautifulSoup) -> None:
+        """
+        Process paragraph elements.
+
+        Args:
+            doc: Document being constructed
+            element: BeautifulSoup paragraph element
+        """
+        paragraph = doc.add_paragraph()
+        self._process_text_with_formatting(paragraph, element)
+
+    def process_list(self, doc: Document, element: BeautifulSoup) -> None:
+        """
+        Process list elements.
+
+        Args:
+            doc: Document being constructed
+            element: BeautifulSoup list element
+        """
+        list_style = "List Bullet" if element.name == "ul" else "List Number"
+        for li in element.find_all("li", recursive=False):
+            paragraph = doc.add_paragraph(style=list_style)
+            self._process_text_with_formatting(paragraph, li)
+
+    def _process_text_with_formatting(self, paragraph, element) -> None:
+        """
+        Process text with formatting.
+
+        Args:
+            paragraph: Paragraph to add formatted text to
+            element: BeautifulSoup element containing text
+        """
+        for child in element.children:
+            if isinstance(child, str):
+                if child.strip():
+                    paragraph.add_run(child)
+            elif child.name in ["strong", "b"]:
+                run = paragraph.add_run(child.get_text())
+                run.bold = True
+            elif child.name in ["em", "i"]:
+                run = paragraph.add_run(child.get_text())
+                run.italic = True
+            elif child.name == "code":
+                run = paragraph.add_run(child.get_text())
+                run.font.name = self.style.fonts.code_font.split(",", maxsplit=1)[0].strip("'")
+
+
 class DocumentCompiler:
-    """Handles document compilation with configurable styling."""
+    """
+    Handles document compilation with configurable styling.
+
+    Attributes:
+        config: Configuration dictionary
+        style: Document styling configuration
+        supported_formats: List of supported output formats
+        font_config: WeasyPrint font configuration
+        element_processor: Processor for HTML elements
+    """
 
     def __init__(self, config: Dict):
-        """Initialize compiler with configuration."""
+        """
+        Initialize compiler with configuration.
+
+        Args:
+            config: Configuration dictionary
+        """
         self.config = config
         self.style = DocumentStyle.from_config(config)
         self.supported_formats = ["pdf", "docx"]
         self.font_config = FontConfiguration()
+        self.element_processor = ElementProcessor(self.style)
 
     def convert_to_docx(self, content: str, output_file: Path) -> None:
-        """Convert markdown content to DOCX format."""
+        """
+        Convert markdown content to DOCX format.
+
+        Args:
+            content: Markdown content to convert
+            output_file: Output file path
+
+        Raises:
+            CompilationError: If conversion fails
+        """
         try:
             html_content = markdown.markdown(
                 content, extensions=["fenced_code", "codehilite", "tables", "toc", "extra"]
@@ -134,19 +301,35 @@ class DocumentCompiler:
 
             # Process all elements
             for element in soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6", "p", "ul", "ol"]):
-                self._process_element(doc, element)
+                if element.name.startswith("h"):
+                    self.element_processor.process_heading(doc, element)
+                elif element.name == "p":
+                    self.element_processor.process_paragraph(doc, element)
+                elif element.name in ["ul", "ol"]:
+                    self.element_processor.process_list(doc, element)
 
             # Ensure output directory exists
             output_file.parent.mkdir(parents=True, exist_ok=True)
             doc.save(str(output_file))
 
-        except Exception as e:
-            raise CompilationError(f"DOCX conversion failed: {e}")
+        except (IOError, OSError) as e:
+            raise CompilationError(f"File system error: {e}") from e
+        except Exception as e:  # pylint: disable=broad-except
+            raise CompilationError(f"DOCX conversion failed: {e}") from e
 
     def convert_to_pdf(self, content: str, output_file: Path) -> None:
-        """Convert markdown content to PDF format."""
+        """
+        Convert markdown content to PDF format.
+
+        Args:
+            content: Markdown content to convert
+            output_file: Output file path
+
+        Raises:
+            CompilationError: If conversion fails
+        """
         try:
-            # Check if parent directory exists first
+            # Verify output directory exists
             if not output_file.parent.exists():
                 raise CompilationError(f"Output directory does not exist: {output_file.parent}")
 
@@ -157,19 +340,26 @@ class DocumentCompiler:
             html = HTML(string=styled_html)
             css = CSS(string=self._get_pdf_styles(), font_config=self.font_config)
 
-            # Try to write PDF
             try:
                 html.write_pdf(str(output_file), stylesheets=[css])
             except Exception as e:
-                raise CompilationError(f"PDF conversion failed: {e}")
+                raise CompilationError(f"PDF writing failed: {e}") from e
 
-        except CompilationError:
-            raise
+        except (IOError, OSError) as e:
+            raise CompilationError(f"File system error: {e}") from e
         except Exception as e:
-            raise CompilationError(f"PDF conversion failed: {e}")
+            raise CompilationError(f"PDF conversion failed: {e}") from e
 
     def _create_styled_html(self, content: str) -> str:
-        """Create HTML document with content."""
+        """
+        Create HTML document with content.
+
+        Args:
+            content: HTML content
+
+        Returns:
+            str: Complete HTML document
+        """
         return f"""
         <!DOCTYPE html>
         <html>
@@ -183,7 +373,12 @@ class DocumentCompiler:
         """
 
     def _get_pdf_styles(self) -> str:
-        """Get CSS styles based on configuration."""
+        """
+        Get CSS styles based on configuration.
+
+        Returns:
+            str: CSS styles
+        """
         return f"""
             @page {{
                 margin: {self.style.margin_top} {self.style.margin_right} 
@@ -191,32 +386,32 @@ class DocumentCompiler:
                 size: {self.style.paper_format.width} {self.style.paper_format.height};
                 @top-right {{
                     content: counter(page);
-                    font-family: {self.style.body_font};
-                    font-size: {self.style.font_size};
+                    font-family: {self.style.fonts.body_font};
+                    font-size: {self.style.fonts.font_size};
                 }}
             }}
             
             body {{
-                font-family: {self.style.body_font};
-                font-size: {self.style.font_size};
+                font-family: {self.style.fonts.body_font};
+                font-size: {self.style.fonts.font_size};
                 line-height: 1.4;
-                color: {self.style.text_color};
+                color: {self.style.colors.text_color};
                 margin: 0;
                 padding: 0;
             }}
             
             h1, h2, h3, h4, h5, h6 {{
-                font-family: {self.style.heading_font};
-                color: {self.style.heading_color};
+                font-family: {self.style.fonts.heading_font};
+                color: {self.style.colors.heading_color};
                 margin-top: 1em;
                 margin-bottom: 0.5em;
                 border-bottom: 1px solid #eaecef;
                 page-break-after: avoid;
             }}
             
-            h1 {{ font-size: calc({self.style.font_size} * 2); }}
-            h2 {{ font-size: calc({self.style.font_size} * 1.5); }}
-            h3 {{ font-size: calc({self.style.font_size} * 1.3); }}
+            h1 {{ font-size: calc({self.style.fonts.font_size} * 2); }}
+            h2 {{ font-size: calc({self.style.fonts.font_size} * 1.5); }}
+            h3 {{ font-size: calc({self.style.fonts.font_size} * 1.3); }}
             
             p {{
                 margin: 1em 0;
@@ -225,25 +420,25 @@ class DocumentCompiler:
             }}
             
             pre {{
-                background-color: {self.style.code_background};
+                background-color: {self.style.colors.code_background};
                 padding: 1em;
                 margin: 1em 0;
                 border-radius: 4px;
                 white-space: pre-wrap;
-                font-family: {self.style.code_font};
-                font-size: calc({self.style.font_size} * 0.9);
+                font-family: {self.style.fonts.code_font};
+                font-size: calc({self.style.fonts.font_size} * 0.9);
             }}
             
             code {{
-                background-color: {self.style.code_background};
+                background-color: {self.style.colors.code_background};
                 padding: 0.2em 0.4em;
                 border-radius: 3px;
-                font-family: {self.style.code_font};
-                font-size: calc({self.style.font_size} * 0.9);
+                font-family: {self.style.fonts.code_font};
+                font-size: calc({self.style.fonts.font_size} * 0.9);
             }}
             
             a {{
-                color: {self.style.link_color};
+                color: {self.style.colors.link_color};
                 text-decoration: none;
             }}
             
@@ -269,7 +464,7 @@ class DocumentCompiler:
             }}
             
             thead {{
-                background-color: {self.style.code_background};
+                background-color: {self.style.colors.code_background};
             }}
             
             img {{
@@ -277,69 +472,6 @@ class DocumentCompiler:
                 height: auto;
             }}
         """
-
-    def _process_element(self, doc: Document, element: BeautifulSoup) -> None:
-        """Process HTML element and add to document."""
-        if element.name in ["h1", "h2", "h3", "h4", "h5", "h6"]:
-            level = int(element.name[1])
-            paragraph = doc.add_paragraph(style=f"Heading {level}")
-            text = element.get_text().strip()
-            run = paragraph.add_run(text)
-        elif element.name == "p":
-            paragraph = doc.add_paragraph()
-            text_parts = []
-
-            # Extract and normalize text parts
-            for child in element.children:
-                if isinstance(child, str):
-                    text = child.strip()
-                    if text:
-                        text_parts.append((text, False, False))
-                elif child.name in ["strong", "b"]:
-                    text = child.get_text().strip()
-                    if text:
-                        text_parts.append((text, True, False))
-                elif child.name in ["em", "i"]:
-                    text = child.get_text().strip()
-                    if text:
-                        text_parts.append((text, False, True))
-                else:
-                    text = child.get_text().strip()
-                    if text:
-                        text_parts.append((text, False, False))
-
-            # Combine parts with proper spacing
-            for i, (text, bold, italic) in enumerate(text_parts):
-                if i > 0:  # Add space between parts
-                    paragraph.add_run(" ")
-                run = paragraph.add_run(text)
-                run.bold = bold
-                run.italic = italic
-
-        elif element.name in ["ul", "ol"]:
-            for li in element.find_all("li", recursive=False):
-                paragraph = doc.add_paragraph(style="List Bullet" if element.name == "ul" else "List Number")
-                self._process_children(paragraph, li)
-
-    def _process_children(self, paragraph, element):
-        """Process child elements and add to paragraph."""
-        for child in element.children:
-            if isinstance(child, str):
-                run = paragraph.add_run(child)
-            elif child.name in ["strong", "b"]:
-                run = paragraph.add_run(child.get_text())
-                run.bold = True
-            elif child.name in ["em", "i"]:
-                run = paragraph.add_run(child.get_text())
-                run.italic = True
-            elif child.name == "u":
-                run = paragraph.add_run(child.get_text())
-                run.underline = True
-            elif child.name == "code":
-                run = paragraph.add_run(child.get_text())
-                run.font.name = self.style.code_font.split(",")[0].strip("'")
-            elif child.name:
-                self._process_element(paragraph, child)
 
     def compile_manuscript(self, content: str, formats: List[str], output_dir: Path) -> List[Path]:
         """
@@ -352,13 +484,16 @@ class DocumentCompiler:
 
         Returns:
             List[Path]: List of generated files
+
+        Raises:
+            CompilationError: If compilation fails for any format
         """
         generated_files = []
 
         with tqdm(total=len(formats), desc="Compiling formats") as pbar:
             for fmt in formats:
                 if fmt not in self.supported_formats:
-                    logger.warning(f"Unsupported format: {fmt}")
+                    logger.warning("Unsupported format: %s", fmt)
                     continue
 
                 output_file = output_dir / f"manuscript.{fmt}"
@@ -371,8 +506,9 @@ class DocumentCompiler:
 
                     generated_files.append(output_file)
 
-                except Exception as e:
-                    logger.error(f"Failed to compile {fmt}: {e}")
+                except CompilationError as e:
+                    logger.error("Failed to compile %s: %s", fmt, e)
+                    raise
 
                 pbar.update(1)
 
@@ -398,6 +534,11 @@ def compile_manuscript(structure: Dict, formats: List[str], output_dir: Path, co
     compiler = DocumentCompiler(config)
     generated_files = []
 
+    # Check for empty structure first
+    if not structure:
+        logger.warning("Empty book structure provided, nothing to compile")
+        return False, []
+
     try:
         # Combine all scenes into single markdown
         content = []
@@ -418,20 +559,28 @@ def compile_manuscript(structure: Dict, formats: List[str], output_dir: Path, co
                             content.append(scene_content)
                             content.append("\n")
                         except IOError as e:
-                            logger.error(f"Error reading {scene_path}: {e}")
-                            raise CompilationError(f"Failed to read scene: {e}")
+                            logger.error("Error reading %s: %s", scene_path, e)
+                            raise CompilationError(f"Failed to read scene: {e}") from e
 
                     pbar.update(1)
 
         # Compile combined content
         combined_content = "\n".join(content)
+
+        # Don't compile if there's no actual content
+        if not combined_content.strip():
+            logger.warning("No content to compile")
+            return False, []
+
         generated_files = compiler.compile_manuscript(combined_content, formats, output_dir)
 
         return len(generated_files) > 0, generated_files
 
-    except Exception as e:
-        logger.error(f"Compilation failed: {e}")
-        return False, generated_files
+    except CompilationError:
+        raise
+    except Exception as e:  # pylint: disable=broad-except
+        logger.error("Unexpected error during compilation: %s", e)
+        raise CompilationError(f"Unexpected compilation error: {e}") from e
 
 
 def batch_compile(
@@ -462,8 +611,6 @@ def batch_compile(
         ... }
         >>> success, files = batch_compile(structure, formats=['pdf', 'docx'])
     """
-    from ..utils.config_loader import get_config
-
     config = config or get_config()
     formats = formats or config.get("pandoc_output_formats", ["docx", "pdf"])
     output_dir = Path(config.get("compiled_dir", "Compiled"))
@@ -471,61 +618,27 @@ def batch_compile(
 
     for attempt in range(retries + 1):
         if attempt > 0:
-            logger.info(f"Retry attempt {attempt}/{retries}")
-
-        success, files = compile_manuscript(structure, formats, output_dir, config)
-
-        created_files.extend([str(f) for f in files])
-
-        if success:
-            return True, created_files
-
-        if attempt < retries:
-            logger.warning("Compilation failed, will retry...")
+            logger.info("Retrying compilation %d/%d", attempt, retries)
             time.sleep(2**attempt)  # Exponential backoff
 
-    logger.error("All compilation attempts failed")
+        try:
+            success, files = compile_manuscript(structure, formats, output_dir, config)
+            created_files.extend([str(f) for f in files])
+
+            if success:
+                return True, created_files
+
+        except CompilationError as e:
+            if attempt == retries:
+                logger.error("Final compilation attempt failed: %s", e)
+                raise
+            logger.warning("Compilation failed, will retry: %s", e)
+
     return False, created_files
 
 
-# Example default configuration
-DEFAULT_CONFIG = {
-    "document_style": {
-        "body_font": "'-apple-system', BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif",
-        "heading_font": "'-apple-system', BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif",
-        "code_font": "'Courier New', monospace",
-        "font_size": "12pt",
-        "paper_format": "letter",
-        "margin_top": "1in",
-        "margin_right": "1in",
-        "margin_bottom": "1in",
-        "margin_left": "1in",
-        "heading_color": "#000000",
-        "text_color": "#000000",
-        "link_color": "#0366d6",
-        "code_background": "#f6f8fa",
-    },
-    "pandoc_output_formats": ["docx", "pdf"],
-    "compiled_dir": "Compiled",
-}
-
+# Example usage
 if __name__ == "__main__":
-    # Example usage
     import doctest
 
     doctest.testmod()
-
-    # Example structure
-    example_structure = {1: {1: [{"path": Path("scenes/scene1.md"), "scene_num": 1}]}}  # Book 1  # Act 1
-
-    # Example compilation
-    try:
-        success, files = batch_compile(example_structure, formats=["pdf", "docx"], config=DEFAULT_CONFIG)
-
-        if success:
-            print(f"Successfully created: {', '.join(files)}")
-        else:
-            print("Compilation failed")
-
-    except CompilationError as e:
-        print(f"Error: {e}")

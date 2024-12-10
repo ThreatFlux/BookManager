@@ -32,9 +32,10 @@ The structure dictionary format is:
 
 import re
 from pathlib import Path
-from typing import Dict, Optional, Tuple, List
+from typing import Dict, Optional, Tuple
 from tqdm import tqdm
 
+from ..utils import config_loader
 from ..utils.config_loader import get_config
 from ..utils.logging_setup import get_logger
 
@@ -91,51 +92,91 @@ def get_scene_number(path: Path) -> int:
     return 9999
 
 
+class ScanningError(Exception):
+    """Custom exception for scanning-related errors."""
+
+
+def process_file(file_path: Path, drafts_dir: Path, structure: Dict) -> None:
+    """Process a single markdown file and update the structure.
+
+    Args:
+        file_path: Path to the markdown file
+        drafts_dir: Root directory of drafts
+        structure: Project structure to update
+
+    Raises:
+        ValueError: If file structure is invalid
+        PermissionError: If file access is denied
+    """
+    relative_path = file_path.relative_to(drafts_dir)
+    parts = relative_path.parts
+
+    book_num = act_num = None
+    for part in parts:
+        if book_match := re.match(r"^Book(\d+)$", part, re.IGNORECASE):
+            book_num = int(book_match.group(1))
+        elif act_match := re.match(r"^Act(\d+)$", part, re.IGNORECASE):
+            act_num = int(act_match.group(1))
+
+    if book_num is not None and act_num is not None:
+        if book_num not in structure:
+            structure[book_num] = {}
+        if act_num not in structure[book_num]:
+            structure[book_num][act_num] = []
+
+        scene_num = get_scene_number(file_path)
+        structure[book_num][act_num].append({"path": file_path, "scene_num": scene_num})
+
+
 def scan_project() -> Dict:
-    """Scan the project directory for books, acts, and scenes."""
+    """Scan the project directory for books, acts, and scenes.
+
+    Returns:
+        Dict: Project structure with books, acts and scenes
+
+    Raises:
+        ScanningError: If there are issues accessing or parsing project files
+        ValueError: If there are issues with file/directory structure
+    """
     config = get_config()
     drafts_dir = Path(config["drafts_dir"])
     structure = {}
 
     if not drafts_dir.exists():
-        logger.warning(f"Drafts directory not found: {drafts_dir}")
+        logger.warning("Drafts directory not found: %s", drafts_dir)
         return {}
 
     try:
-        # Look for files first to set up progress bar
         md_files = list(drafts_dir.rglob("*.md"))
 
         with tqdm(total=len(md_files), desc="Scanning files") as pbar:
             for file_path in md_files:
-                relative_path = file_path.relative_to(drafts_dir)
-                parts = relative_path.parts
-
-                # Extract book and act numbers
-                book_num = act_num = None
-                for part in parts:
-                    if book_match := re.match(r"^Book(\d+)$", part, re.IGNORECASE):
-                        book_num = int(book_match.group(1))
-                    elif act_match := re.match(r"^Act(\d+)$", part, re.IGNORECASE):
-                        act_num = int(act_match.group(1))
-
-                if book_num is not None and act_num is not None:
-                    if book_num not in structure:
-                        structure[book_num] = {}
-                    if act_num not in structure[book_num]:
-                        structure[book_num][act_num] = []
-
-                    structure[book_num][act_num].append({"path": file_path, "scene_num": get_scene_number(file_path)})
-
-                pbar.update(1)
+                try:
+                    process_file(file_path, drafts_dir, structure)
+                except ValueError as e:
+                    logger.error("Error processing file %s: %s", file_path, e)
+                except PermissionError as e:
+                    logger.error("Permission denied accessing file %s: %s", file_path, e)
+                finally:
+                    pbar.update(1)
 
         # Sort scenes within each act
         for book in structure.values():
             for act in book.values():
                 act.sort(key=lambda x: x["scene_num"])
 
+    except PermissionError as e:
+        logger.error("Permission denied accessing drafts directory: %s", e)
+        raise ScanningError(f"Permission denied accessing drafts directory: {e}") from e
+    except OSError as e:
+        logger.error("File system error while scanning project: %s", e)
+        raise ScanningError(f"File system error while scanning project: {e}") from e
+    except re.error as e:
+        logger.error("Regex pattern matching error: %s", e)
+        raise ScanningError(f"Error in file name pattern matching: {e}") from e
     except Exception as e:
-        logger.error(f"Error scanning project: {e}")
-        return {}
+        logger.error("Unexpected error while scanning project: %s", e)
+        raise ScanningError(f"Unexpected error while scanning project: {e}") from e
 
     return structure
 
@@ -143,7 +184,6 @@ def scan_project() -> Dict:
 # And in test_scan_project
 def test_scan_project(temp_project, monkeypatch):
     """Test project structure scanning."""
-    from book_manager.utils import config_loader
 
     # Create test structure first
     drafts_dir = temp_project / "4_Scenes_and_Chapters/Drafts"
@@ -152,6 +192,7 @@ def test_scan_project(temp_project, monkeypatch):
     (test_dir / "Scene01.md").write_text("Test content")
 
     def mock_get_config():
+        """Mock get_config function."""
         return {"drafts_dir": str(drafts_dir)}
 
     monkeypatch.setattr(config_loader, "get_config", mock_get_config)

@@ -53,7 +53,8 @@ class LRUCache(OrderedDict):
             self.popitem(last=False)
 
     def clear(self) -> None:
-        """Clear all items from cache."""
+        """Clear all items from cache and log the action."""
+        logger.debug("Clearing LRU cache with %d items", len(self))
         super().clear()
 
 
@@ -87,8 +88,8 @@ class TextAnalyzer:
                         sha256_hash.update(chunk)
             return sha256_hash.hexdigest()
         except (IOError, mmap.error) as e:
-            logger.error(f"Error reading file {file_path}: {e}")
-            raise IOError(f"Failed to hash file: {e}")
+            logger.error("Error reading file %s: %s", file_path, e)
+            raise IOError(f"Failed to hash file: {e}") from e
 
     @staticmethod
     def count_words(text: str) -> int:
@@ -132,9 +133,14 @@ class TextAnalyzer:
 
         Returns:
             Optional[Dict]: Analysis results or None if error
+
+        Raises:
+            ValueError: If file is too large
+            IOError: If there are issues reading the file
+            UnicodeDecodeError: If there are encoding issues
         """
         if not file_path.exists():
-            logger.error(f"File not found: {file_path}")
+            logger.error("File not found: %s", file_path)
             return None
 
         # Check file size
@@ -149,14 +155,14 @@ class TextAnalyzer:
                 if cached := self._cache.get(file_hash):
                     return cached
             except IOError as e:
-                logger.warning(f"Cache miss due to error: {e}")
+                logger.warning("Cache miss due to error: %s", e)
 
         # Read and analyze file
         try:
             encoding = self.config.get("encoding", "utf-8")
             text = file_path.read_text(encoding=encoding)
         except (IOError, UnicodeDecodeError) as e:
-            logger.error(f"Error reading file {file_path}: {e}")
+            logger.error("Error reading file %s: %s", file_path, e)
             return None
 
         # Perform analysis
@@ -175,8 +181,14 @@ class TextAnalyzer:
 
             return results
 
-        except Exception as e:
-            logger.error(f"Analysis error for {file_path}: {e}")
+        except (ValueError, TypeError) as e:
+            # ValueError for invalid regex patterns or other value-related errors
+            # TypeError for unexpected data type issues
+            logger.error("Analysis error for %s: %s", file_path, e)
+            return None
+        except RecursionError as e:
+            # Handle potential recursion issues with regex
+            logger.error("Recursion error analyzing %s: %s", file_path, e)
             return None
 
 
