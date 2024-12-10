@@ -11,7 +11,7 @@ from typing import List
 from setuptools import setup, find_packages
 
 
-def read_requirements(filename: str = 'requirements.txt') -> List[str]:
+def read_requirements(filename: str = "requirements.txt") -> List[str]:
     """
     Read and parse requirements from a requirements file.
 
@@ -27,11 +27,8 @@ def read_requirements(filename: str = 'requirements.txt') -> List[str]:
     if not os.path.exists(filename):
         return []
 
-    with open(filename, 'r', encoding='utf-8') as f:
-        return [
-            line.strip() for line in f
-            if line.strip() and not line.startswith('#')
-        ]
+    with open(filename, "r", encoding="utf-8") as f:
+        return [line.strip() for line in f if line.strip() and not line.startswith("#")]
 
 
 # Development dependencies
@@ -56,7 +53,7 @@ TEST_REQUIRES = [
 ]
 
 # Read long description from README
-with open("README.md", encoding='utf-8') as f:
+with open("README.md", encoding="utf-8") as f:
     LONG_DESCRIPTION = f.read()
 
 # Parse installation requirements
@@ -73,27 +70,23 @@ setup(
     packages=find_packages(),
     include_package_data=True,
     python_requires=">=3.8",
-
     # Version management
     setup_requires=["setuptools_scm"],
     use_scm_version={
         "write_to": "book_manager/_version.py",
     },
-
     # Dependencies
     install_requires=INSTALL_REQUIRES,
     extras_require={
         "dev": DEV_REQUIRES,
         "test": TEST_REQUIRES,
     },
-
     # Console scripts
     entry_points={
         "console_scripts": [
             "book_manager=book_manager.main:main",
         ],
     },
-
     # Package metadata
     classifiers=[
         "Development Status :: 4 - Beta",
