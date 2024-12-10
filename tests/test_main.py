@@ -9,12 +9,7 @@ Tests for main module functionality.
 import pytest
 from pathlib import Path
 from unittest.mock import Mock, patch
-from book_manager.main import (
-    CommandLineParser,
-    BookManager,
-    BookManagerError,
-    main
-)
+from book_manager.main import CommandLineParser, BookManager, BookManagerError, main
 
 
 @pytest.fixture
@@ -24,11 +19,11 @@ def mock_structure(tmp_path):
         1: {
             1: [
                 {
-                    'path': tmp_path / "Book1/Act1/Scene01.md",
-                    'scene_num': 1,
-                    'word_count': 100,
-                    'top_words': ['test', 'words'],
-                    'todos': ['Fix scene']
+                    "path": tmp_path / "Book1/Act1/Scene01.md",
+                    "scene_num": 1,
+                    "word_count": 100,
+                    "top_words": ["test", "words"],
+                    "todos": ["Fix scene"],
                 }
             ]
         }
@@ -46,14 +41,13 @@ def test_command_line_parser_basic(cli_parser):
     args = cli_parser.parser.parse_args([])
     assert not args.no_compile
     assert not args.report_only
-    assert args.config == 'config.yaml'
+    assert args.config == "config.yaml"
 
 
 def test_command_line_parser_formats(cli_parser):
     """Test output format parsing."""
-    args = cli_parser.parser.parse_args(['--output-format', 'pdf,docx'])
-    assert args.output_format == ['pdf', 'docx']
-
+    args = cli_parser.parser.parse_args(["--output-format", "pdf,docx"])
+    assert args.output_format == ["pdf", "docx"]
 
 
 @pytest.fixture
@@ -74,14 +68,16 @@ def test_book_manager_setup(book_manager, tmp_path):
     """Test BookManager setup."""
     # Create mock config
     config_path = Path(book_manager.args.config)
-    config_path.write_text("""
+    config_path.write_text(
+        """
         stopwords: [the, and]
         top_words_count: 5
         pandoc_output_formats: [pdf]
         outline_file: outline.md
         drafts_dir: drafts
         compiled_dir: compiled
-    """)
+    """
+    )
 
     book_manager.setup()
     assert book_manager.config is not None
@@ -89,7 +85,7 @@ def test_book_manager_setup(book_manager, tmp_path):
 
 def test_book_manager_scan(book_manager, mock_structure):
     """Test project structure scanning."""
-    with patch('book_manager.main.scan_project') as mock_scan:
+    with patch("book_manager.main.scan_project") as mock_scan:
         mock_scan.return_value = mock_structure
         book_manager.scan_project()
         assert book_manager.structure == mock_structure
@@ -99,12 +95,8 @@ def test_book_manager_analyze(book_manager, mock_structure):
     """Test scene analysis."""
     book_manager.structure = mock_structure
 
-    with patch('book_manager.main.analyze_scene') as mock_analyze:
-        mock_analyze.return_value = {
-            'word_count': 100,
-            'top_words': ['test'],
-            'todos': []
-        }
+    with patch("book_manager.main.analyze_scene") as mock_analyze:
+        mock_analyze.return_value = {"word_count": 100, "top_words": ["test"], "todos": []}
         book_manager.analyze_scenes()
 
 
@@ -121,15 +113,15 @@ def test_outline_generation(book_manager, mock_structure):
 
 def test_outline_saving(book_manager, tmp_path):
     """Test outline file saving."""
-    book_manager.config = {'outline_file': str(tmp_path / "outline.md")}
+    book_manager.config = {"outline_file": str(tmp_path / "outline.md")}
     content = "# Test Outline"
     book_manager.save_outline(content)
 
-    assert Path(book_manager.config['outline_file']).exists()
-    assert Path(book_manager.config['outline_file']).read_text() == content
+    assert Path(book_manager.config["outline_file"]).exists()
+    assert Path(book_manager.config["outline_file"]).read_text() == content
 
 
-@patch('book_manager.main.batch_compile')
+@patch("book_manager.main.batch_compile")
 def test_manuscript_compilation(mock_compile, book_manager, mock_structure):
     """Test manuscript compilation process."""
     book_manager.structure = mock_structure
@@ -143,21 +135,23 @@ def test_complete_workflow(book_manager, mock_structure, tmp_path):
     """Test complete workflow execution."""
     # Setup mocks
     with patch.multiple(
-            'book_manager.main',
-            scan_project=Mock(return_value=mock_structure),
-            analyze_scene=Mock(return_value={'word_count': 100}),
-            batch_compile=Mock(return_value=(True, ["output.pdf"]))
+        "book_manager.main",
+        scan_project=Mock(return_value=mock_structure),
+        analyze_scene=Mock(return_value={"word_count": 100}),
+        batch_compile=Mock(return_value=(True, ["output.pdf"])),
     ):
         # Create config file
         config_path = Path(book_manager.args.config)
-        config_path.write_text("""
+        config_path.write_text(
+            """
             stopwords: [the, and]
             top_words_count: 5
             pandoc_output_formats: [pdf]
             outline_file: outline.md
             drafts_dir: drafts
             compiled_dir: compiled
-        """)
+        """
+        )
 
         # Run workflow
         book_manager.run()
@@ -165,14 +159,14 @@ def test_complete_workflow(book_manager, mock_structure, tmp_path):
 
 def test_error_handling(book_manager):
     """Test error handling in main workflow."""
-    with patch('book_manager.main.scan_project') as mock_scan:
+    with patch("book_manager.main.scan_project") as mock_scan:
         mock_scan.return_value = None
         with pytest.raises(BookManagerError):
             book_manager.run()
 
 
-@patch('book_manager.main.CommandLineParser')
-@patch('book_manager.main.BookManager')
+@patch("book_manager.main.CommandLineParser")
+@patch("book_manager.main.BookManager")
 def test_main_function(mock_manager_class, mock_parser_class):
     """Test main entry point function."""
     # Setup mocks

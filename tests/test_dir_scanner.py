@@ -8,11 +8,7 @@ Tests for the directory scanner module.
 
 import pytest
 from pathlib import Path
-from book_manager.structure.dir_scanner import (
-    extract_book_act_from_path,
-    get_scene_number,
-    scan_project
-)
+from book_manager.structure.dir_scanner import extract_book_act_from_path, get_scene_number, scan_project
 
 
 def test_extract_book_act_from_path():
@@ -44,9 +40,7 @@ def test_scan_project(temp_project, monkeypatch):
         Mock configuration loader.
         :return:
         """
-        return {
-            'drafts_dir': str(test_dir.parent.parent.parent)
-        }
+        return {"drafts_dir": str(test_dir.parent.parent.parent)}
 
     monkeypatch.setattr(config_loader, "get_config", mock_get_config)
 

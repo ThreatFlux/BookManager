@@ -94,7 +94,7 @@ def get_scene_number(path: Path) -> int:
 def scan_project() -> Dict:
     """Scan the project directory for books, acts, and scenes."""
     config = get_config()
-    drafts_dir = Path(config['drafts_dir'])
+    drafts_dir = Path(config["drafts_dir"])
     structure = {}
 
     if not drafts_dir.exists():
@@ -124,23 +124,21 @@ def scan_project() -> Dict:
                     if act_num not in structure[book_num]:
                         structure[book_num][act_num] = []
 
-                    structure[book_num][act_num].append({
-                        'path': file_path,
-                        'scene_num': get_scene_number(file_path)
-                    })
+                    structure[book_num][act_num].append({"path": file_path, "scene_num": get_scene_number(file_path)})
 
                 pbar.update(1)
 
         # Sort scenes within each act
         for book in structure.values():
             for act in book.values():
-                act.sort(key=lambda x: x['scene_num'])
+                act.sort(key=lambda x: x["scene_num"])
 
     except Exception as e:
         logger.error(f"Error scanning project: {e}")
         return {}
 
     return structure
+
 
 # And in test_scan_project
 def test_scan_project(temp_project, monkeypatch):
@@ -154,9 +152,7 @@ def test_scan_project(temp_project, monkeypatch):
     (test_dir / "Scene01.md").write_text("Test content")
 
     def mock_get_config():
-        return {
-            'drafts_dir': str(drafts_dir)
-        }
+        return {"drafts_dir": str(drafts_dir)}
 
     monkeypatch.setattr(config_loader, "get_config", mock_get_config)
 

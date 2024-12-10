@@ -29,35 +29,39 @@ from tqdm import tqdm
 from ..utils.logging_setup import get_logger
 
 logger = get_logger(__name__)
-__all__ = ['DocumentCompiler', 'CompilationError', 'compile_manuscript', 'batch_compile']
+__all__ = ["DocumentCompiler", "CompilationError", "compile_manuscript", "batch_compile"]
+
 
 class CompilationError(Exception):
     """Custom exception for compilation errors."""
+
     pass
 
 
 @dataclass
 class PaperFormat:
     """Paper format configuration."""
+
     name: str
     width: str
     height: str
 
     @classmethod
-    def from_name(cls, name: str) -> 'PaperFormat':
+    def from_name(cls, name: str) -> "PaperFormat":
         """Create format from standard name."""
         formats = {
-            'letter': cls('letter', '8.5in', '11in'),
-            'legal': cls('legal', '8.5in', '14in'),
-            'a4': cls('a4', '210mm', '297mm'),
-            'a5': cls('a5', '148mm', '210mm')
+            "letter": cls("letter", "8.5in", "11in"),
+            "legal": cls("legal", "8.5in", "14in"),
+            "a4": cls("a4", "210mm", "297mm"),
+            "a5": cls("a5", "148mm", "210mm"),
         }
-        return formats.get(name.lower(), formats['letter'])
+        return formats.get(name.lower(), formats["letter"])
 
 
 @dataclass
 class DocumentStyle:
     """Document styling configuration."""
+
     # Font settings
     body_font: str = field(default="")
     heading_font: str = field(default="")
@@ -65,7 +69,7 @@ class DocumentStyle:
     font_size: str = field(default="")
 
     # Page settings
-    paper_format: PaperFormat = field(default_factory=lambda: PaperFormat.from_name('letter'))
+    paper_format: PaperFormat = field(default_factory=lambda: PaperFormat.from_name("letter"))
     margin_top: str = field(default="1in")
     margin_right: str = field(default="1in")
     margin_bottom: str = field(default="1in")
@@ -78,68 +82,33 @@ class DocumentStyle:
     code_background: str = field(default="#f6f8fa")
 
     @classmethod
-    def from_config(cls, config: Dict) -> 'DocumentStyle':
+    def from_config(cls, config: Dict) -> "DocumentStyle":
         """Create style from config dictionary."""
-        style_config = config.get('document_style', {})
-        env_prefix = 'BOOK_MANAGER_'
+        style_config = config.get("document_style", {})
+        env_prefix = "BOOK_MANAGER_"
 
         return cls(
             body_font=os.getenv(
-                f'{env_prefix}BODY_FONT',
-                style_config.get('body_font',
-                    "'-apple-system', BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif")
+                f"{env_prefix}BODY_FONT",
+                style_config.get("body_font", "'-apple-system', BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif"),
             ),
             heading_font=os.getenv(
-                f'{env_prefix}HEADING_FONT',
-                style_config.get('heading_font',
-                    "'-apple-system', BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif")
+                f"{env_prefix}HEADING_FONT",
+                style_config.get("heading_font", "'-apple-system', BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif"),
             ),
-            code_font=os.getenv(
-                f'{env_prefix}CODE_FONT',
-                style_config.get('code_font', "'Courier New', monospace")
-            ),
-            font_size=os.getenv(
-                f'{env_prefix}FONT_SIZE',
-                style_config.get('font_size', "12pt")
-            ),
+            code_font=os.getenv(f"{env_prefix}CODE_FONT", style_config.get("code_font", "'Courier New', monospace")),
+            font_size=os.getenv(f"{env_prefix}FONT_SIZE", style_config.get("font_size", "12pt")),
             paper_format=PaperFormat.from_name(
-                os.getenv(
-                    f'{env_prefix}PAPER_FORMAT',
-                    style_config.get('paper_format', 'letter')
-                )
+                os.getenv(f"{env_prefix}PAPER_FORMAT", style_config.get("paper_format", "letter"))
             ),
-            margin_top=os.getenv(
-                f'{env_prefix}MARGIN_TOP',
-                style_config.get('margin_top', '1in')
-            ),
-            margin_right=os.getenv(
-                f'{env_prefix}MARGIN_RIGHT',
-                style_config.get('margin_right', '1in')
-            ),
-            margin_bottom=os.getenv(
-                f'{env_prefix}MARGIN_BOTTOM',
-                style_config.get('margin_bottom', '1in')
-            ),
-            margin_left=os.getenv(
-                f'{env_prefix}MARGIN_LEFT',
-                style_config.get('margin_left', '1in')
-            ),
-            heading_color=os.getenv(
-                f'{env_prefix}HEADING_COLOR',
-                style_config.get('heading_color', '#000000')
-            ),
-            text_color=os.getenv(
-                f'{env_prefix}TEXT_COLOR',
-                style_config.get('text_color', '#000000')
-            ),
-            link_color=os.getenv(
-                f'{env_prefix}LINK_COLOR',
-                style_config.get('link_color', '#0366d6')
-            ),
-            code_background=os.getenv(
-                f'{env_prefix}CODE_BACKGROUND',
-                style_config.get('code_background', '#f6f8fa')
-            )
+            margin_top=os.getenv(f"{env_prefix}MARGIN_TOP", style_config.get("margin_top", "1in")),
+            margin_right=os.getenv(f"{env_prefix}MARGIN_RIGHT", style_config.get("margin_right", "1in")),
+            margin_bottom=os.getenv(f"{env_prefix}MARGIN_BOTTOM", style_config.get("margin_bottom", "1in")),
+            margin_left=os.getenv(f"{env_prefix}MARGIN_LEFT", style_config.get("margin_left", "1in")),
+            heading_color=os.getenv(f"{env_prefix}HEADING_COLOR", style_config.get("heading_color", "#000000")),
+            text_color=os.getenv(f"{env_prefix}TEXT_COLOR", style_config.get("text_color", "#000000")),
+            link_color=os.getenv(f"{env_prefix}LINK_COLOR", style_config.get("link_color", "#0366d6")),
+            code_background=os.getenv(f"{env_prefix}CODE_BACKGROUND", style_config.get("code_background", "#f6f8fa")),
         )
 
 
@@ -150,22 +119,21 @@ class DocumentCompiler:
         """Initialize compiler with configuration."""
         self.config = config
         self.style = DocumentStyle.from_config(config)
-        self.supported_formats = ['pdf', 'docx']
+        self.supported_formats = ["pdf", "docx"]
         self.font_config = FontConfiguration()
 
     def convert_to_docx(self, content: str, output_file: Path) -> None:
         """Convert markdown content to DOCX format."""
         try:
             html_content = markdown.markdown(
-                content,
-                extensions=['fenced_code', 'codehilite', 'tables', 'toc', 'extra']
+                content, extensions=["fenced_code", "codehilite", "tables", "toc", "extra"]
             )
 
             doc = Document()
-            soup = BeautifulSoup(html_content, 'html.parser')
+            soup = BeautifulSoup(html_content, "html.parser")
 
             # Process all elements
-            for element in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'ul', 'ol']):
+            for element in soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6", "p", "ul", "ol"]):
                 self._process_element(doc, element)
 
             # Ensure output directory exists
@@ -182,10 +150,7 @@ class DocumentCompiler:
             if not output_file.parent.exists():
                 raise CompilationError(f"Output directory does not exist: {output_file.parent}")
 
-            html_content = markdown.markdown(
-                content,
-                extensions=['fenced_code', 'codehilite', 'tables', 'toc']
-            )
+            html_content = markdown.markdown(content, extensions=["fenced_code", "codehilite", "tables", "toc"])
 
             # Create styled HTML
             styled_html = self._create_styled_html(html_content)
@@ -202,7 +167,6 @@ class DocumentCompiler:
             raise
         except Exception as e:
             raise CompilationError(f"PDF conversion failed: {e}")
-
 
     def _create_styled_html(self, content: str) -> str:
         """Create HTML document with content."""
@@ -316,12 +280,12 @@ class DocumentCompiler:
 
     def _process_element(self, doc: Document, element: BeautifulSoup) -> None:
         """Process HTML element and add to document."""
-        if element.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
+        if element.name in ["h1", "h2", "h3", "h4", "h5", "h6"]:
             level = int(element.name[1])
-            paragraph = doc.add_paragraph(style=f'Heading {level}')
+            paragraph = doc.add_paragraph(style=f"Heading {level}")
             text = element.get_text().strip()
             run = paragraph.add_run(text)
-        elif element.name == 'p':
+        elif element.name == "p":
             paragraph = doc.add_paragraph()
             text_parts = []
 
@@ -331,11 +295,11 @@ class DocumentCompiler:
                     text = child.strip()
                     if text:
                         text_parts.append((text, False, False))
-                elif child.name in ['strong', 'b']:
+                elif child.name in ["strong", "b"]:
                     text = child.get_text().strip()
                     if text:
                         text_parts.append((text, True, False))
-                elif child.name in ['em', 'i']:
+                elif child.name in ["em", "i"]:
                     text = child.get_text().strip()
                     if text:
                         text_parts.append((text, False, True))
@@ -347,16 +311,14 @@ class DocumentCompiler:
             # Combine parts with proper spacing
             for i, (text, bold, italic) in enumerate(text_parts):
                 if i > 0:  # Add space between parts
-                    paragraph.add_run(' ')
+                    paragraph.add_run(" ")
                 run = paragraph.add_run(text)
                 run.bold = bold
                 run.italic = italic
 
-        elif element.name in ['ul', 'ol']:
-            for li in element.find_all('li', recursive=False):
-                paragraph = doc.add_paragraph(
-                    style='List Bullet' if element.name == 'ul' else 'List Number'
-                )
+        elif element.name in ["ul", "ol"]:
+            for li in element.find_all("li", recursive=False):
+                paragraph = doc.add_paragraph(style="List Bullet" if element.name == "ul" else "List Number")
                 self._process_children(paragraph, li)
 
     def _process_children(self, paragraph, element):
@@ -364,27 +326,22 @@ class DocumentCompiler:
         for child in element.children:
             if isinstance(child, str):
                 run = paragraph.add_run(child)
-            elif child.name in ['strong', 'b']:
+            elif child.name in ["strong", "b"]:
                 run = paragraph.add_run(child.get_text())
                 run.bold = True
-            elif child.name in ['em', 'i']:
+            elif child.name in ["em", "i"]:
                 run = paragraph.add_run(child.get_text())
                 run.italic = True
-            elif child.name == 'u':
+            elif child.name == "u":
                 run = paragraph.add_run(child.get_text())
                 run.underline = True
-            elif child.name == 'code':
+            elif child.name == "code":
                 run = paragraph.add_run(child.get_text())
-                run.font.name = self.style.code_font.split(',')[0].strip("'")
+                run.font.name = self.style.code_font.split(",")[0].strip("'")
             elif child.name:
                 self._process_element(paragraph, child)
 
-    def compile_manuscript(
-            self,
-            content: str,
-            formats: List[str],
-            output_dir: Path
-    ) -> List[Path]:
+    def compile_manuscript(self, content: str, formats: List[str], output_dir: Path) -> List[Path]:
         """
         Compile manuscript to specified formats.
 
@@ -407,9 +364,9 @@ class DocumentCompiler:
                 output_file = output_dir / f"manuscript.{fmt}"
 
                 try:
-                    if fmt == 'docx':
+                    if fmt == "docx":
                         self.convert_to_docx(content, output_file)
-                    elif fmt == 'pdf':
+                    elif fmt == "pdf":
                         self.convert_to_pdf(content, output_file)
 
                     generated_files.append(output_file)
@@ -422,12 +379,7 @@ class DocumentCompiler:
         return generated_files
 
 
-def compile_manuscript(
-        structure: Dict,
-        formats: List[str],
-        output_dir: Path,
-        config: Dict
-) -> Tuple[bool, List[Path]]:
+def compile_manuscript(structure: Dict, formats: List[str], output_dir: Path, config: Dict) -> Tuple[bool, List[Path]]:
     """
     Compile manuscript from structure to specified formats.
 
@@ -450,23 +402,19 @@ def compile_manuscript(
         # Combine all scenes into single markdown
         content = []
 
-        with tqdm(total=sum(len(acts) for acts in structure.values()),
-                  desc="Combining scenes") as pbar:
+        with tqdm(total=sum(len(acts) for acts in structure.values()), desc="Combining scenes") as pbar:
             for book_num in sorted(structure.keys()):
                 content.append(f"\n# Book {book_num}\n")
 
                 for act_num in sorted(structure[book_num].keys()):
                     content.append(f"\n## Act {act_num}\n")
 
-                    for scene in sorted(
-                            structure[book_num][act_num],
-                            key=lambda x: x['scene_num']
-                    ):
-                        scene_path = scene['path']
+                    for scene in sorted(structure[book_num][act_num], key=lambda x: x["scene_num"]):
+                        scene_path = scene["path"]
                         content.append(f"\n### {scene_path.stem}\n")
 
                         try:
-                            scene_content = Path(scene_path).read_text(encoding='utf-8')
+                            scene_content = Path(scene_path).read_text(encoding="utf-8")
                             content.append(scene_content)
                             content.append("\n")
                         except IOError as e:
@@ -477,11 +425,7 @@ def compile_manuscript(
 
         # Compile combined content
         combined_content = "\n".join(content)
-        generated_files = compiler.compile_manuscript(
-            combined_content,
-            formats,
-            output_dir
-        )
+        generated_files = compiler.compile_manuscript(combined_content, formats, output_dir)
 
         return len(generated_files) > 0, generated_files
 
@@ -491,10 +435,7 @@ def compile_manuscript(
 
 
 def batch_compile(
-        structure: Dict,
-        formats: Optional[List[str]] = None,
-        retries: int = 2,
-        config: Optional[Dict] = None
+    structure: Dict, formats: Optional[List[str]] = None, retries: int = 2, config: Optional[Dict] = None
 ) -> Tuple[bool, List[str]]:
     """
     Compile manuscript with retry logic.
@@ -524,20 +465,15 @@ def batch_compile(
     from ..utils.config_loader import get_config
 
     config = config or get_config()
-    formats = formats or config.get('pandoc_output_formats', ['docx', 'pdf'])
-    output_dir = Path(config.get('compiled_dir', 'Compiled'))
+    formats = formats or config.get("pandoc_output_formats", ["docx", "pdf"])
+    output_dir = Path(config.get("compiled_dir", "Compiled"))
     created_files = []
 
     for attempt in range(retries + 1):
         if attempt > 0:
             logger.info(f"Retry attempt {attempt}/{retries}")
 
-        success, files = compile_manuscript(
-            structure,
-            formats,
-            output_dir,
-            config
-        )
+        success, files = compile_manuscript(structure, formats, output_dir, config)
 
         created_files.extend([str(f) for f in files])
 
@@ -546,7 +482,7 @@ def batch_compile(
 
         if attempt < retries:
             logger.warning("Compilation failed, will retry...")
-            time.sleep(2 ** attempt)  # Exponential backoff
+            time.sleep(2**attempt)  # Exponential backoff
 
     logger.error("All compilation attempts failed")
     return False, created_files
@@ -554,23 +490,23 @@ def batch_compile(
 
 # Example default configuration
 DEFAULT_CONFIG = {
-    'document_style': {
-        'body_font': "'-apple-system', BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif",
-        'heading_font': "'-apple-system', BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif",
-        'code_font': "'Courier New', monospace",
-        'font_size': '12pt',
-        'paper_format': 'letter',
-        'margin_top': '1in',
-        'margin_right': '1in',
-        'margin_bottom': '1in',
-        'margin_left': '1in',
-        'heading_color': '#000000',
-        'text_color': '#000000',
-        'link_color': '#0366d6',
-        'code_background': '#f6f8fa'
+    "document_style": {
+        "body_font": "'-apple-system', BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif",
+        "heading_font": "'-apple-system', BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif",
+        "code_font": "'Courier New', monospace",
+        "font_size": "12pt",
+        "paper_format": "letter",
+        "margin_top": "1in",
+        "margin_right": "1in",
+        "margin_bottom": "1in",
+        "margin_left": "1in",
+        "heading_color": "#000000",
+        "text_color": "#000000",
+        "link_color": "#0366d6",
+        "code_background": "#f6f8fa",
     },
-    'pandoc_output_formats': ['docx', 'pdf'],
-    'compiled_dir': 'Compiled'
+    "pandoc_output_formats": ["docx", "pdf"],
+    "compiled_dir": "Compiled",
 }
 
 if __name__ == "__main__":
@@ -580,24 +516,11 @@ if __name__ == "__main__":
     doctest.testmod()
 
     # Example structure
-    example_structure = {
-        1: {  # Book 1
-            1: [  # Act 1
-                {
-                    'path': Path('scenes/scene1.md'),
-                    'scene_num': 1
-                }
-            ]
-        }
-    }
+    example_structure = {1: {1: [{"path": Path("scenes/scene1.md"), "scene_num": 1}]}}  # Book 1  # Act 1
 
     # Example compilation
     try:
-        success, files = batch_compile(
-            example_structure,
-            formats=['pdf', 'docx'],
-            config=DEFAULT_CONFIG
-        )
+        success, files = batch_compile(example_structure, formats=["pdf", "docx"], config=DEFAULT_CONFIG)
 
         if success:
             print(f"Successfully created: {', '.join(files)}")

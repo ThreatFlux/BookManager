@@ -8,11 +8,7 @@ Tests for text analysis functionality.
 
 import pytest
 from pathlib import Path
-from book_manager.analysis.text_analysis import (
-    TextAnalyzer,
-    LRUCache,
-    analyze_scene
-)
+from book_manager.analysis.text_analysis import TextAnalyzer, LRUCache, analyze_scene
 
 
 @pytest.fixture
@@ -63,15 +59,15 @@ def test_word_counting(analyzer, sample_text):
 
 def test_word_frequency(analyzer, sample_text):
     """Test word frequency analysis."""
-    stopwords = frozenset(['the', 'a'])
+    stopwords = frozenset(["the", "a"])
     freq = analyzer.get_word_frequency(sample_text, stopwords)
 
     # Common words should be excluded
-    assert 'the' not in freq
+    assert "the" not in freq
 
     # Verify counts
-    assert freq['quick'] == 1
-    assert freq['fox'] == 1
+    assert freq["quick"] == 1
+    assert freq["fox"] == 1
 
 
 def test_todo_extraction(analyzer, sample_text):
@@ -85,20 +81,22 @@ def test_todo_extraction(analyzer, sample_text):
 def test_scene_analysis(tmp_path, analyzer):
     """Test complete scene analysis."""
     scene_file = tmp_path / "scene.md"
-    scene_file.write_text("""
+    scene_file.write_text(
+        """
     # Test Scene
 
     This is a test scene with some repeated words.
     This is another test line.
 
     TODO: Review this scene
-    """)
+    """
+    )
 
     results = analyzer.analyze_scene(scene_file)
     assert results is not None
-    assert results['word_count'] > 0
-    assert len(results['top_words']) > 0
-    assert len(results['todos']) == 1
+    assert results["word_count"] > 0
+    assert len(results["top_words"]) > 0
+    assert len(results["todos"]) == 1
 
 
 def test_scene_analysis_caching(tmp_path, analyzer):
@@ -127,7 +125,7 @@ def test_large_file_handling(tmp_path, analyzer):
     large_file = tmp_path / "large.md"
 
     # Create a file larger than max_size
-    large_content = "x" * (analyzer.config['max_file_size'] + 1)
+    large_content = "x" * (analyzer.config["max_file_size"] + 1)
     large_file.write_text(large_content)
 
     with pytest.raises(ValueError, match="File too large"):
@@ -139,8 +137,8 @@ def test_invalid_encoding(tmp_path, analyzer):
     invalid_file = tmp_path / "invalid.md"
 
     # Write binary content that's not valid utf-8
-    with open(invalid_file, 'wb') as f:
-        f.write(b'\x80\x81')
+    with open(invalid_file, "wb") as f:
+        f.write(b"\x80\x81")
 
     results = analyzer.analyze_scene(invalid_file)
     assert results is None

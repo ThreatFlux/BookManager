@@ -24,7 +24,8 @@ def project_structure(tmp_path):
 
     # Create scene files
     scene1 = act1 / "Scene01.md"
-    scene1.write_text("""
+    scene1.write_text(
+        """
     # Opening Scene
 
     This is the first scene with some content.
@@ -32,21 +33,25 @@ def project_structure(tmp_path):
 
     TODO: Improve description
     TODO: Add character development
-    """)
+    """
+    )
 
     scene2 = act1 / "Scene02.md"
-    scene2.write_text("""
+    scene2.write_text(
+        """
     # Second Scene
 
     Another scene with different content.
     More text for analysis purposes.
 
     TODO: Add conflict
-    """)
+    """
+    )
 
     # Create config
     config = tmp_path / "config.yaml"
-    config.write_text(f"""
+    config.write_text(
+        f"""
         stopwords: [the, and, with]
         top_words_count: 5
         pandoc_output_formats: [docx]
@@ -56,7 +61,8 @@ def project_structure(tmp_path):
         cache_size: 100
         max_file_size: 1048576
         encoding: utf-8
-    """)
+    """
+    )
 
     return tmp_path
 
@@ -103,8 +109,7 @@ def test_incremental_update(project_structure):
     manager.run()
 
     # Modify a scene
-    scene_path = (project_structure / "4_Scenes_and_Chapters" / "Drafts" /
-                  "Book1" / "Act1" / "Scene01.md")
+    scene_path = project_structure / "4_Scenes_and_Chapters" / "Drafts" / "Book1" / "Act1" / "Scene01.md"
     original_content = scene_path.read_text()
     new_content = original_content + "\nNew content added.\nTODO: Review new content"
     scene_path.write_text(new_content)
@@ -119,19 +124,17 @@ def test_incremental_update(project_structure):
     assert "Review new content" in outline_content
 
 
-@pytest.mark.skipif(not shutil.which('pandoc'),
-                    reason="Pandoc not installed")
+@pytest.mark.skipif(not shutil.which("pandoc"), reason="Pandoc not installed")
 def test_compilation(project_structure):
     """Test actual manuscript compilation (requires pandoc)."""
     args = Mock()
     args.config = str(project_structure / "config.yaml")
     args.no_compile = False
     args.report_only = False
-    args.output_format = ['docx']
+    args.output_format = ["docx"]
 
     manager = BookManager(args)
     manager.run()
-
 
 
 def test_error_conditions(project_structure):
@@ -141,14 +144,16 @@ def test_error_conditions(project_structure):
     args.no_compile = True
 
     # Setup configuration
-    project_structure.joinpath("config.yaml").write_text("""
+    project_structure.joinpath("config.yaml").write_text(
+        """
         stopwords: [the, and]
         top_words_count: 5
         pandoc_output_formats: [docx]
         outline_file: outline.md
         drafts_dir: 4_Scenes_and_Chapters/Drafts
         compiled_dir: Compiled
-    """)
+    """
+    )
 
     manager = BookManager(args)
     manager.setup()

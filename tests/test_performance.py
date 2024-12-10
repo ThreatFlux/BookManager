@@ -19,6 +19,7 @@ from book_manager.main import BookManager
 from book_manager.analysis.text_analysis import TextAnalyzer  # Fixed import
 from unittest.mock import Mock
 
+
 class TimeMeasurement:
     """Class to store time measurement results."""
 
@@ -81,9 +82,9 @@ def generate_random_text(words: int) -> str:
     word_list = []
     for _ in range(words):
         word_len = random.randint(3, 10)
-        word = ''.join(random.choices(string.ascii_lowercase, k=word_len))
+        word = "".join(random.choices(string.ascii_lowercase, k=word_len))
         word_list.append(word)
-    return ' '.join(word_list)
+    return " ".join(word_list)
 
 
 def generate_test_files(project_dir: Path, num_files: int = 10):
@@ -109,9 +110,10 @@ def generate_test_files(project_dir: Path, num_files: int = 10):
 def clean_analyzer_cache():
     """Clean analyzer cache between tests."""
     analyzer = TextAnalyzer()  # Create new analyzer instance
-    if hasattr(analyzer, '_cache'):
+    if hasattr(analyzer, "_cache"):
         analyzer._cache.clear()  # Clear cache if it exists
     yield
+
 
 @pytest.fixture
 def large_project(tmp_path):
@@ -141,7 +143,8 @@ def large_project(tmp_path):
 
     # Create config
     config = tmp_path / "config.yaml"
-    config.write_text(f"""
+    config.write_text(
+        f"""
         stopwords: [the, and, with]
         top_words_count: 5
         pandoc_output_formats: [docx]
@@ -151,19 +154,15 @@ def large_project(tmp_path):
         cache_size: 1000
         max_file_size: 1048576
         encoding: utf-8
-    """)
+    """
+    )
 
     return tmp_path
 
 
 def test_scanning_performance(large_project):
     """Test performance of project structure scanning."""
-    args = Mock(
-        config=str(large_project / "config.yaml"),
-        no_compile=True,
-        report_only=False,
-        force=False
-    )
+    args = Mock(config=str(large_project / "config.yaml"), no_compile=True, report_only=False, force=False)
     manager = BookManager(args)
 
     with measure_time() as timing:
@@ -196,19 +195,13 @@ def test_analysis_performance(large_project):
                 pytest.fail(f"Analysis with cache failed: {e}")
 
     assert cache_time.elapsed < no_cache_time.elapsed, (
-        f"Cached analysis ({cache_time.elapsed:.2f}s) not faster than "
-        f"uncached ({no_cache_time.elapsed:.2f}s)"
+        f"Cached analysis ({cache_time.elapsed:.2f}s) not faster than " f"uncached ({no_cache_time.elapsed:.2f}s)"
     )
 
 
 def test_memory_usage(large_project):
     """Test memory usage during processing."""
-    args = Mock(
-        config=str(large_project / "config.yaml"),
-        no_compile=True,
-        report_only=False,
-        force=True
-    )
+    args = Mock(config=str(large_project / "config.yaml"), no_compile=True, report_only=False, force=True)
     manager = BookManager(args)
 
     with measure_memory() as memory:
@@ -219,8 +212,7 @@ def test_memory_usage(large_project):
 
     max_memory = 500 * 1024 * 1024  # 500MB
     assert memory.used < max_memory, (
-        f"Memory usage too high: {memory.used / 1024 / 1024:.1f}MB "
-        f"(max: {max_memory / 1024 / 1024:.1f}MB)"
+        f"Memory usage too high: {memory.used / 1024 / 1024:.1f}MB " f"(max: {max_memory / 1024 / 1024:.1f}MB)"
     )
 
 
@@ -246,8 +238,7 @@ def test_cache_effectiveness(large_project):
                 pytest.fail(f"Cached analysis failed: {e}")
 
     assert cache_time.elapsed < no_cache_time.elapsed * 0.5, (
-        f"Cache not effective enough: cached={cache_time.elapsed:.2f}s, "
-        f"uncached={no_cache_time.elapsed:.2f}s"
+        f"Cache not effective enough: cached={cache_time.elapsed:.2f}s, " f"uncached={no_cache_time.elapsed:.2f}s"
     )
 
 
@@ -265,9 +256,7 @@ def test_large_file_handling(large_project):
         except Exception as e:
             pytest.fail(f"Large file analysis failed: {e}")
 
-    assert timing.elapsed < 5.0, (
-        f"Large file processing too slow: {timing.elapsed:.2f}s"
-    )
+    assert timing.elapsed < 5.0, f"Large file processing too slow: {timing.elapsed:.2f}s"
 
 
 def test_concurrent_access(large_project):
@@ -287,9 +276,7 @@ def test_concurrent_access(large_project):
             results = list(executor.map(analyze_file, scene_files))
 
     assert all(r is not None for r in results), "Some files failed analysis"
-    assert timing.elapsed < 10.0, (
-        f"Concurrent processing too slow: {timing.elapsed:.2f}s"
-    )
+    assert timing.elapsed < 10.0, f"Concurrent processing too slow: {timing.elapsed:.2f}s"
 
 
 if __name__ == "__main__":

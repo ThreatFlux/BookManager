@@ -65,7 +65,7 @@ class TextAnalyzer:
     def __init__(self):
         """Initialize analyzer with configuration."""
         self.config = get_config()
-        self._cache = LRUCache(self.config.get('cache_size', 1000))
+        self._cache = LRUCache(self.config.get("cache_size", 1000))
 
     def get_file_hash(self, file_path: Path) -> str:
         """
@@ -93,7 +93,7 @@ class TextAnalyzer:
     @staticmethod
     def count_words(text: str) -> int:
         """Count words in text efficiently."""
-        return len(re.findall(r'\b\w+\b', text))
+        return len(re.findall(r"\b\w+\b", text))
 
     @lru_cache(maxsize=1000)
     def get_word_frequency(self, text: str, stopwords: frozenset) -> CounterType:
@@ -107,7 +107,7 @@ class TextAnalyzer:
         Returns:
             Counter: Word frequency counter
         """
-        words = re.findall(r'\b\w+\b', text.lower())
+        words = re.findall(r"\b\w+\b", text.lower())
         filtered_words = [w for w in words if w not in stopwords and len(w) >= 3]
         return Counter(filtered_words)
 
@@ -138,7 +138,7 @@ class TextAnalyzer:
             return None
 
         # Check file size
-        max_size = self.config.get('max_file_size', 10 * 1024 * 1024)
+        max_size = self.config.get("max_file_size", 10 * 1024 * 1024)
         if file_path.stat().st_size > max_size:
             raise ValueError(f"File too large: {file_path}")
 
@@ -153,7 +153,7 @@ class TextAnalyzer:
 
         # Read and analyze file
         try:
-            encoding = self.config.get('encoding', 'utf-8')
+            encoding = self.config.get("encoding", "utf-8")
             text = file_path.read_text(encoding=encoding)
         except (IOError, UnicodeDecodeError) as e:
             logger.error(f"Error reading file {file_path}: {e}")
@@ -162,18 +162,12 @@ class TextAnalyzer:
         # Perform analysis
         try:
             word_count = self.count_words(text)
-            stopwords = frozenset(self.config.get('stopwords', []))
+            stopwords = frozenset(self.config.get("stopwords", []))
             freq = self.get_word_frequency(text, stopwords)
-            top_words = [word for word, _ in
-                         freq.most_common(self.config.get('top_words_count', 5))]
+            top_words = [word for word, _ in freq.most_common(self.config.get("top_words_count", 5))]
             todos = self.extract_todos(text)
 
-            results = {
-                'word_count': word_count,
-                'top_words': top_words,
-                'todos': todos,
-                'frequency': dict(freq)
-            }
+            results = {"word_count": word_count, "top_words": top_words, "todos": todos, "frequency": dict(freq)}
 
             # Cache results if enabled
             if use_cache:
@@ -211,6 +205,7 @@ def get_analyzer() -> TextAnalyzer:
     if _global_analyzer is None:
         _global_analyzer = TextAnalyzer()
     return _global_analyzer
+
 
 if __name__ == "__main__":
     import doctest
