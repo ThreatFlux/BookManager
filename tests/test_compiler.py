@@ -74,8 +74,8 @@ def test_paper_format():
 def test_document_style_from_config(default_config):
     """Test document style creation from config."""
     style = DocumentStyle.from_config(default_config)
-    assert style.body_font == "'Arial', sans-serif"
-    assert style.font_size == "12pt"
+    assert style.fonts.body_font == "'Arial', sans-serif"
+    assert style.fonts.font_size == "12pt"
     assert isinstance(style.paper_format, PaperFormat)
 
 
@@ -154,12 +154,13 @@ def test_batch_compilation(sample_structure, default_config, tmp_path):
     assert any(f.endswith(".pdf") for f in files)
 
 
-def test_empty_structure(compiler, default_config):
+def test_empty_structure(compiler, default_config, tmp_path):
     """Test compilation with empty structure."""
     empty_structure = {}
-    output_dir = Path("output")
+    output_dir = tmp_path / "output"
+    output_dir.mkdir(exist_ok=True)
 
     success, files = compile_manuscript(empty_structure, ["pdf"], output_dir, config=default_config)
 
-    assert not success
-    assert len(files) == 0
+    assert not success  # Should fail for empty structure
+    assert len(files) == 0  # Should produce no files
