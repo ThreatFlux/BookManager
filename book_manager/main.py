@@ -129,6 +129,7 @@ class CommandLineParser:
         self._args = None  # Store parsed args
 
     def _add_arguments(self) -> None:
+        """Add command line arguments to parser."""
         self.parser.add_argument(
             '--no-compile',
             action='store_true',
@@ -156,30 +157,31 @@ class CommandLineParser:
             help="Force reanalysis of all scenes"
         )
         self.parser.add_argument(
-            '--verbose',
-            action='store_true',
-            help="Increase output verbosity"
-        )
-        self.parser.add_argument(
             '--quiet',
             action='store_true',
             help="Suppress non-error output"
         )
-
+        self.parser.add_argument(
+            '--verbose',
+            action='store_true',
+            help="Increase output verbosity"
+        )
     def parse(self) -> argparse.Namespace:
-        """
-        Parse and validate command line arguments.
+        """Parse and validate command line arguments."""
+        args = self.parser.parse_args()
 
-        Raises:
-            ValueError: If arguments are invalid
-
-        Returns:
-            argparse.Namespace: Parsed arguments
-        """
-        self._args = self.parser.parse_args()
-        if self._args.verbose and self._args.quiet:
+        # Check for invalid argument combinations
+        if args.verbose and args.quiet:
             raise ValueError("Cannot specify both --verbose and --quiet")
-        return self._args
+
+        # Validate output formats if specified
+        if args.output_format:
+            valid_formats = {'pdf', 'docx', 'epub'}
+            invalid_formats = set(args.output_format) - valid_formats
+            if invalid_formats:
+                raise ValueError(f"Invalid output formats: {', '.join(invalid_formats)}")
+
+        return args
 
 # And in test_main.py
 def test_invalid_arguments(cli_parser):

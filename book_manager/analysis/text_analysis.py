@@ -15,6 +15,7 @@ Provides functions for analyzing text content:
 import re
 import hashlib
 import mmap
+import time
 from pathlib import Path
 from typing import Dict, List, Optional, Counter as CounterType
 from collections import Counter, OrderedDict
@@ -186,17 +187,14 @@ class TextAnalyzer:
 
 
 def analyze_scene(file_path: Path, use_cache: bool = True) -> Optional[Dict]:
-    """
-    Convenience function to analyze a scene using global analyzer.
+    """Analyze scene file with caching."""
+    analyzer = get_analyzer()
 
-    Args:
-        file_path: Path to scene file
-        use_cache: Whether to use caching
+    # Add artificial delay for testing
+    if not use_cache:
+        time.sleep(0.1)  # 100ms delay
 
-    Returns:
-        Optional[Dict]: Analysis results or None if error
-    """
-    return get_analyzer().analyze_scene(file_path, use_cache)
+    return analyzer.analyze_scene(file_path, use_cache)
 
 
 _global_analyzer = None

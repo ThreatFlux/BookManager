@@ -92,50 +92,55 @@ def get_scene_number(path: Path) -> int:
 
 
 def scan_project() -> Dict:
-    """
-    Scan the project directory for books, acts, and scenes.
-    Uses tqdm for progress indication.
-
-    Returns:
-        Dict: Nested dictionary of books/acts/scenes
-    """
+    """Scan the project directory for books, acts, and scenes."""
     config = get_config()
     drafts_dir = Path(config['drafts_dir'])
-
     structure = {}
 
     if not drafts_dir.exists():
         logger.warning(f"Drafts directory not found: {drafts_dir}")
         return {}
 
-    md_files = list(drafts_dir.rglob("*.md"))
-    if not md_files:
+    try:
+        # Look for files first to set up progress bar
+        md_files = list(drafts_dir.rglob("*.md"))
+
+        with tqdm(total=len(md_files), desc="Scanning files") as pbar:
+            for file_path in md_files:
+                relative_path = file_path.relative_to(drafts_dir)
+                parts = relative_path.parts
+
+                # Extract book and act numbers
+                book_num = act_num = None
+                for part in parts:
+                    if book_match := re.match(r"^Book(\d+)$", part, re.IGNORECASE):
+                        book_num = int(book_match.group(1))
+                    elif act_match := re.match(r"^Act(\d+)$", part, re.IGNORECASE):
+                        act_num = int(act_match.group(1))
+
+                if book_num is not None and act_num is not None:
+                    if book_num not in structure:
+                        structure[book_num] = {}
+                    if act_num not in structure[book_num]:
+                        structure[book_num][act_num] = []
+
+                    structure[book_num][act_num].append({
+                        'path': file_path,
+                        'scene_num': get_scene_number(file_path)
+                    })
+
+                pbar.update(1)
+
+        # Sort scenes within each act
+        for book in structure.values():
+            for act in book.values():
+                act.sort(key=lambda x: x['scene_num'])
+
+    except Exception as e:
+        logger.error(f"Error scanning project: {e}")
         return {}
 
-    with tqdm(total=len(md_files), desc="Scanning files") as pbar:
-        for scene_path in md_files:
-            book_num, act_num = extract_book_act_from_path(scene_path.parts)
-
-            if book_num is not None and act_num is not None:
-                if book_num not in structure:
-                    structure[book_num] = {}
-                if act_num not in structure[book_num]:
-                    structure[book_num][act_num] = []
-
-                structure[book_num][act_num].append({
-                    'path': scene_path,
-                    'scene_num': get_scene_number(scene_path)
-                })
-
-            pbar.update(1)
-
-    # Sort scenes within each act
-    for book in structure.values():
-        for act in book.values():
-            act.sort(key=lambda x: x['scene_num'])
-
     return structure
-
 
 # And in test_scan_project
 def test_scan_project(temp_project, monkeypatch):

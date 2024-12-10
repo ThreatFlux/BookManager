@@ -1,484 +1,531 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
 """
 Compiler Module
 --------------
 
-Handles manuscript compilation using pandoc with robust error handling,
-progress tracking, and support for multiple output formats.
+Handles manuscript compilation using python-docx and WeasyPrint with configurable styling,
+robust error handling, and progress tracking.
 
-Requirements:
-    - pandoc must be installed and accessible in the system PATH
-    - appropriate LaTeX installation for PDF compilation
-    - appropriate fonts for various formats
+Features:
+- Multiple output formats (PDF, DOCX)
+- Configurable styling via config.yaml and environment variables
+- Progress tracking with tqdm
+- Comprehensive error handling and logging
+- Support for various paper formats and style customization
 """
 
 import os
-import shutil
-import subprocess
-import tempfile
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union, Callable
+from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass, field
+
+import markdown
+from bs4 import BeautifulSoup
+from docx import Document
+from weasyprint import HTML, CSS
+from weasyprint.text.fonts import FontConfiguration
 from tqdm import tqdm
 
-from ..utils.config_loader import get_config
 from ..utils.logging_setup import get_logger
 
 logger = get_logger(__name__)
-
+__all__ = ['DocumentCompiler', 'CompilationError', 'compile_manuscript', 'batch_compile']
 
 class CompilationError(Exception):
     """Custom exception for compilation errors."""
     pass
 
 
-class PandocMissingError(CompilationError):
-    """Exception raised when pandoc is not available."""
-    pass
+@dataclass
+class PaperFormat:
+    """Paper format configuration."""
+    name: str
+    width: str
+    height: str
+
+    @classmethod
+    def from_name(cls, name: str) -> 'PaperFormat':
+        """Create format from standard name."""
+        formats = {
+            'letter': cls('letter', '8.5in', '11in'),
+            'legal': cls('legal', '8.5in', '14in'),
+            'a4': cls('a4', '210mm', '297mm'),
+            'a5': cls('a5', '148mm', '210mm')
+        }
+        return formats.get(name.lower(), formats['letter'])
 
 
-class InvalidStructureError(CompilationError):
-    """Exception raised when the book structure is invalid."""
-    pass
+@dataclass
+class DocumentStyle:
+    """Document styling configuration."""
+    # Font settings
+    body_font: str = field(default="")
+    heading_font: str = field(default="")
+    code_font: str = field(default="")
+    font_size: str = field(default="")
+
+    # Page settings
+    paper_format: PaperFormat = field(default_factory=lambda: PaperFormat.from_name('letter'))
+    margin_top: str = field(default="1in")
+    margin_right: str = field(default="1in")
+    margin_bottom: str = field(default="1in")
+    margin_left: str = field(default="1in")
+
+    # Colors
+    heading_color: str = field(default="#000000")
+    text_color: str = field(default="#000000")
+    link_color: str = field(default="#0366d6")
+    code_background: str = field(default="#f6f8fa")
+
+    @classmethod
+    def from_config(cls, config: Dict) -> 'DocumentStyle':
+        """Create style from config dictionary."""
+        style_config = config.get('document_style', {})
+        env_prefix = 'BOOK_MANAGER_'
+
+        return cls(
+            body_font=os.getenv(
+                f'{env_prefix}BODY_FONT',
+                style_config.get('body_font',
+                    "'-apple-system', BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif")
+            ),
+            heading_font=os.getenv(
+                f'{env_prefix}HEADING_FONT',
+                style_config.get('heading_font',
+                    "'-apple-system', BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif")
+            ),
+            code_font=os.getenv(
+                f'{env_prefix}CODE_FONT',
+                style_config.get('code_font', "'Courier New', monospace")
+            ),
+            font_size=os.getenv(
+                f'{env_prefix}FONT_SIZE',
+                style_config.get('font_size', "12pt")
+            ),
+            paper_format=PaperFormat.from_name(
+                os.getenv(
+                    f'{env_prefix}PAPER_FORMAT',
+                    style_config.get('paper_format', 'letter')
+                )
+            ),
+            margin_top=os.getenv(
+                f'{env_prefix}MARGIN_TOP',
+                style_config.get('margin_top', '1in')
+            ),
+            margin_right=os.getenv(
+                f'{env_prefix}MARGIN_RIGHT',
+                style_config.get('margin_right', '1in')
+            ),
+            margin_bottom=os.getenv(
+                f'{env_prefix}MARGIN_BOTTOM',
+                style_config.get('margin_bottom', '1in')
+            ),
+            margin_left=os.getenv(
+                f'{env_prefix}MARGIN_LEFT',
+                style_config.get('margin_left', '1in')
+            ),
+            heading_color=os.getenv(
+                f'{env_prefix}HEADING_COLOR',
+                style_config.get('heading_color', '#000000')
+            ),
+            text_color=os.getenv(
+                f'{env_prefix}TEXT_COLOR',
+                style_config.get('text_color', '#000000')
+            ),
+            link_color=os.getenv(
+                f'{env_prefix}LINK_COLOR',
+                style_config.get('link_color', '#0366d6')
+            ),
+            code_background=os.getenv(
+                f'{env_prefix}CODE_BACKGROUND',
+                style_config.get('code_background', '#f6f8fa')
+            )
+        )
 
 
-class CompilationConfig:
-    """
-    Configuration for manuscript compilation.
+class DocumentCompiler:
+    """Handles document compilation with configurable styling."""
 
-    Attributes:
-        formats (List[str]): Output formats to generate
-        temp_dir (Path): Directory for temporary files
-        output_dir (Path): Directory for compiled outputs
-        extra_args (Dict[str, List[str]]): Format-specific pandoc arguments
-    """
-
-    FORMAT_REQUIREMENTS = {
-        'pdf': ['xelatex', '--pdf-engine=xelatex'],
-        'epub': ['--epub-chapter-level=2'],
-        'docx': [],
-        'html': ['--standalone', '--self-contained']
-    }
-
-    def __init__(
-            self,
-            formats: Optional[List[str]] = None,
-            extra_args: Optional[Dict[str, List[str]]] = None,
-            timeout: int = 300
-    ) -> None:
-        """
-        Initialize compilation configuration.
-
-        Args:
-            formats: List of output formats to generate
-            extra_args: Additional pandoc arguments per format
-            timeout: Compilation timeout in seconds
-        """
-        config = get_config()
-        self.formats = formats or config['pandoc_output_formats']
-        self.output_dir = Path(config['compiled_dir'])
-        self.extra_args = extra_args or {}
-        self.timeout = timeout
-
-    def get_format_args(self, format_name: str) -> List[str]:
-        """
-        Get combined arguments for a specific format.
-
-        Args:
-            format_name: Name of the output format
-
-        Returns:
-            List[str]: Combined pandoc arguments
-        """
-        base_args = self.FORMAT_REQUIREMENTS.get(format_name, [])
-        extra_args = self.extra_args.get(format_name, [])
-        return base_args + extra_args
-
-    def validate_formats(self) -> None:
-        """
-        Validate requested formats are supported.
-
-        Raises:
-            ValueError: If any format is unsupported
-        """
-        unsupported = set(self.formats) - set(self.FORMAT_REQUIREMENTS.keys())
-        if unsupported:
-            raise ValueError(f"Unsupported output formats: {unsupported}")
-
-
-class ManuscriptCompiler:
-    """
-    Handles manuscript compilation with proper resource management.
-    """
-
-    def __init__(
-            self,
-            config: CompilationConfig,
-            progress_callback: Optional[Callable[[str, int, int], None]] = None
-    ) -> None:
-        """
-        Initialize compiler with configuration.
-
-        Args:
-            config: Compilation configuration
-            progress_callback: Optional callback for progress updates
-        """
+    def __init__(self, config: Dict):
+        """Initialize compiler with configuration."""
         self.config = config
-        self.temp_dir = None
-        self.progress_callback = progress_callback
-        self._check_requirements()
+        self.style = DocumentStyle.from_config(config)
+        self.supported_formats = ['pdf', 'docx']
+        self.font_config = FontConfiguration()
 
-    def __enter__(self) -> 'ManuscriptCompiler':
-        """Context manager entry."""
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        """Context manager exit with cleanup."""
-        self._cleanup_temp_dir()
-
-    def _validate_structure(self, structure: Dict) -> None:
-        """
-        Validate book structure format.
-
-        Args:
-            structure: Book structure dictionary
-
-        Raises:
-            InvalidStructureError: If structure is invalid
-        """
+    def convert_to_docx(self, content: str, output_file: Path) -> None:
+        """Convert markdown content to DOCX format."""
         try:
-            for book_num, acts in structure.items():
-                if not isinstance(book_num, int):
-                    raise InvalidStructureError(f"Invalid book number: {book_num}")
-                for act_num, scenes in acts.items():
-                    if not isinstance(act_num, int):
-                        raise InvalidStructureError(f"Invalid act number: {act_num}")
-                    for scene in scenes:
-                        if not isinstance(scene, dict):
-                            raise InvalidStructureError("Invalid scene format")
-                        if 'path' not in scene or 'scene_num' not in scene:
-                            raise InvalidStructureError("Missing required scene attributes")
-        except (TypeError, AttributeError) as e:
-            raise InvalidStructureError(f"Invalid structure format: {e}")
-
-    # book_manager/compile/compiler.py update the _check_requirements method:
-
-    def _check_requirements(self) -> Tuple[bool, List[str]]:
-        """
-        Check if all required tools are available.
-
-        Returns:
-            Tuple[bool, List[str]]: (all_available, available_formats)
-
-        Raises:
-            PandocMissingError: If pandoc is not installed
-        """
-        # First check pandoc
-        if not self._check_pandoc():
-            raise PandocMissingError(
-                "Pandoc not found. Please install pandoc:\n"
-                "Ubuntu/Debian: sudo apt-get install pandoc texlive-xetex\n"
-                "macOS: brew install pandoc basictex\n"
-                "Windows: choco install pandoc miktex"
+            html_content = markdown.markdown(
+                content,
+                extensions=['fenced_code', 'codehilite', 'tables', 'toc', 'extra']
             )
 
-        available_formats = []
-        all_available = True
+            doc = Document()
+            soup = BeautifulSoup(html_content, 'html.parser')
 
-        for fmt in self.config.formats:
-            if fmt == 'pdf':
-                has_xelatex = self._check_xelatex()
-                if has_xelatex:
-                    available_formats.append('pdf')
+            # Process all elements
+            for element in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'ul', 'ol']):
+                self._process_element(doc, element)
+
+            # Ensure output directory exists
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+            doc.save(str(output_file))
+
+        except Exception as e:
+            raise CompilationError(f"DOCX conversion failed: {e}")
+
+    def convert_to_pdf(self, content: str, output_file: Path) -> None:
+        """Convert markdown content to PDF format."""
+        try:
+            # Check if parent directory exists first
+            if not output_file.parent.exists():
+                raise CompilationError(f"Output directory does not exist: {output_file.parent}")
+
+            html_content = markdown.markdown(
+                content,
+                extensions=['fenced_code', 'codehilite', 'tables', 'toc']
+            )
+
+            # Create styled HTML
+            styled_html = self._create_styled_html(html_content)
+            html = HTML(string=styled_html)
+            css = CSS(string=self._get_pdf_styles(), font_config=self.font_config)
+
+            # Try to write PDF
+            try:
+                html.write_pdf(str(output_file), stylesheets=[css])
+            except Exception as e:
+                raise CompilationError(f"PDF conversion failed: {e}")
+
+        except CompilationError:
+            raise
+        except Exception as e:
+            raise CompilationError(f"PDF conversion failed: {e}")
+
+
+    def _create_styled_html(self, content: str) -> str:
+        """Create HTML document with content."""
+        return f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+        </head>
+        <body>
+            {content}
+        </body>
+        </html>
+        """
+
+    def _get_pdf_styles(self) -> str:
+        """Get CSS styles based on configuration."""
+        return f"""
+            @page {{
+                margin: {self.style.margin_top} {self.style.margin_right} 
+                        {self.style.margin_bottom} {self.style.margin_left};
+                size: {self.style.paper_format.width} {self.style.paper_format.height};
+                @top-right {{
+                    content: counter(page);
+                    font-family: {self.style.body_font};
+                    font-size: {self.style.font_size};
+                }}
+            }}
+            
+            body {{
+                font-family: {self.style.body_font};
+                font-size: {self.style.font_size};
+                line-height: 1.4;
+                color: {self.style.text_color};
+                margin: 0;
+                padding: 0;
+            }}
+            
+            h1, h2, h3, h4, h5, h6 {{
+                font-family: {self.style.heading_font};
+                color: {self.style.heading_color};
+                margin-top: 1em;
+                margin-bottom: 0.5em;
+                border-bottom: 1px solid #eaecef;
+                page-break-after: avoid;
+            }}
+            
+            h1 {{ font-size: calc({self.style.font_size} * 2); }}
+            h2 {{ font-size: calc({self.style.font_size} * 1.5); }}
+            h3 {{ font-size: calc({self.style.font_size} * 1.3); }}
+            
+            p {{
+                margin: 1em 0;
+                orphans: 2;
+                widows: 2;
+            }}
+            
+            pre {{
+                background-color: {self.style.code_background};
+                padding: 1em;
+                margin: 1em 0;
+                border-radius: 4px;
+                white-space: pre-wrap;
+                font-family: {self.style.code_font};
+                font-size: calc({self.style.font_size} * 0.9);
+            }}
+            
+            code {{
+                background-color: {self.style.code_background};
+                padding: 0.2em 0.4em;
+                border-radius: 3px;
+                font-family: {self.style.code_font};
+                font-size: calc({self.style.font_size} * 0.9);
+            }}
+            
+            a {{
+                color: {self.style.link_color};
+                text-decoration: none;
+            }}
+            
+            ul, ol {{
+                margin: 1em 0;
+                padding-left: 2em;
+            }}
+            
+            li {{
+                margin: 0.5em 0;
+            }}
+            
+            table {{
+                border-collapse: collapse;
+                width: 100%;
+                margin: 1em 0;
+            }}
+            
+            th, td {{
+                border: 1px solid #dfe2e5;
+                padding: 0.5em;
+                text-align: left;
+            }}
+            
+            thead {{
+                background-color: {self.style.code_background};
+            }}
+            
+            img {{
+                max-width: 100%;
+                height: auto;
+            }}
+        """
+
+    def _process_element(self, doc: Document, element: BeautifulSoup) -> None:
+        """Process HTML element and add to document."""
+        if element.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
+            level = int(element.name[1])
+            paragraph = doc.add_paragraph(style=f'Heading {level}')
+            text = element.get_text().strip()
+            run = paragraph.add_run(text)
+        elif element.name == 'p':
+            paragraph = doc.add_paragraph()
+            text_parts = []
+
+            # Extract and normalize text parts
+            for child in element.children:
+                if isinstance(child, str):
+                    text = child.strip()
+                    if text:
+                        text_parts.append((text, False, False))
+                elif child.name in ['strong', 'b']:
+                    text = child.get_text().strip()
+                    if text:
+                        text_parts.append((text, True, False))
+                elif child.name in ['em', 'i']:
+                    text = child.get_text().strip()
+                    if text:
+                        text_parts.append((text, False, True))
                 else:
-                    all_available = False
-                    logger.warning(
-                        "XeLaTeX not found. PDF compilation will be disabled.\n"
-                        "To enable PDF compilation, install:\n"
-                        "- Ubuntu/Debian: sudo apt-get install texlive-xetex\n"
-                        "- macOS: brew install basictex\n"
-                        "- Windows: choco install miktex"
-                    )
-            else:
-                available_formats.append(fmt)
+                    text = child.get_text().strip()
+                    if text:
+                        text_parts.append((text, False, False))
 
-        if not available_formats:
-            raise CompilationError("No supported output formats available")
+            # Combine parts with proper spacing
+            for i, (text, bold, italic) in enumerate(text_parts):
+                if i > 0:  # Add space between parts
+                    paragraph.add_run(' ')
+                run = paragraph.add_run(text)
+                run.bold = bold
+                run.italic = italic
 
-        return all_available, available_formats
+        elif element.name in ['ul', 'ol']:
+            for li in element.find_all('li', recursive=False):
+                paragraph = doc.add_paragraph(
+                    style='List Bullet' if element.name == 'ul' else 'List Number'
+                )
+                self._process_children(paragraph, li)
 
-    @staticmethod
-    def _check_xelatex() -> bool:
+    def _process_children(self, paragraph, element):
+        """Process child elements and add to paragraph."""
+        for child in element.children:
+            if isinstance(child, str):
+                run = paragraph.add_run(child)
+            elif child.name in ['strong', 'b']:
+                run = paragraph.add_run(child.get_text())
+                run.bold = True
+            elif child.name in ['em', 'i']:
+                run = paragraph.add_run(child.get_text())
+                run.italic = True
+            elif child.name == 'u':
+                run = paragraph.add_run(child.get_text())
+                run.underline = True
+            elif child.name == 'code':
+                run = paragraph.add_run(child.get_text())
+                run.font.name = self.style.code_font.split(',')[0].strip("'")
+            elif child.name:
+                self._process_element(paragraph, child)
+
+    def compile_manuscript(
+            self,
+            content: str,
+            formats: List[str],
+            output_dir: Path
+    ) -> List[Path]:
         """
-        Check if XeLaTeX is available and working.
+        Compile manuscript to specified formats.
+
+        Args:
+            content: Markdown content to compile
+            formats: List of output formats
+            output_dir: Output directory path
 
         Returns:
-            bool: True if XeLaTeX is available and working
+            List[Path]: List of generated files
         """
-        try:
-            # Check if xelatex exists
-            xelatex_path = shutil.which('xelatex')
-            if not xelatex_path:
-                return False
+        generated_files = []
 
-            # Try running xelatex
-            result = subprocess.run(
-                ['xelatex', '--version'],
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=10
-            )
-            logger.info(f"Found XeLaTeX: {result.stdout.splitlines()[0]}")
-            return True
-        except (subprocess.SubprocessError, FileNotFoundError, OSError) as e:
-            logger.debug(f"XeLaTeX check failed: {e}")
-            return False
+        with tqdm(total=len(formats), desc="Compiling formats") as pbar:
+            for fmt in formats:
+                if fmt not in self.supported_formats:
+                    logger.warning(f"Unsupported format: {fmt}")
+                    continue
 
-    @staticmethod
-    def _check_pandoc() -> bool:
-        """Check if pandoc is available."""
-        try:
-            result = subprocess.run(
-                ['pandoc', '--version'],
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=10
-            )
-            logger.info(f"Found pandoc: {result.stdout.splitlines()[0]}")
-            return True
-        except (subprocess.SubprocessError, FileNotFoundError, OSError):
-            return False
+                output_file = output_dir / f"manuscript.{fmt}"
 
-    def _prepare_temp_dir(self) -> Path:
-        """
-        Create and prepare temporary directory.
-
-        Returns:
-            Path: Path to temporary directory
-        """
-        self.temp_dir = Path(tempfile.mkdtemp())
-        return self.temp_dir
-
-    def _cleanup_temp_dir(self) -> None:
-        """Clean up temporary directory with retries."""
-        if self.temp_dir and self.temp_dir.exists():
-            for attempt in range(3):
                 try:
-                    shutil.rmtree(self.temp_dir)
-                    self.temp_dir = None
-                    break
-                except (OSError, IOError) as e:
-                    if attempt == 2:
-                        logger.error(f"Failed to cleanup temp dir: {e}")
-                    time.sleep(0.1)
+                    if fmt == 'docx':
+                        self.convert_to_docx(content, output_file)
+                    elif fmt == 'pdf':
+                        self.convert_to_pdf(content, output_file)
 
-    def create_combined_markdown(
-            self,
-            structure: Dict,
-            temp_dir: Path
-    ) -> Optional[Path]:
-        """
-        Create combined markdown file from manuscript structure.
+                    generated_files.append(output_file)
 
-        Args:
-            structure: Book structure dictionary
-            temp_dir: Directory for temporary files
+                except Exception as e:
+                    logger.error(f"Failed to compile {fmt}: {e}")
 
-        Returns:
-            Optional[Path]: Path to combined file or None if error
+                pbar.update(1)
 
-        Raises:
-            IOError: If there are issues reading scene files
-            InvalidStructureError: If structure is invalid
-        """
-        self._validate_structure(structure)
-        combined_path = temp_dir / "combined_manuscript.md"
-        lines = []
-
-        try:
-            total_scenes = sum(
-                len(scenes) for book in structure.values()
-                for scenes in book.values()
-            )
-
-            with tqdm(total=total_scenes, desc="Combining scenes") as pbar:
-                for book_num in sorted(structure.keys()):
-                    lines.append(f"\n# Book {book_num}\n")
-
-                    for act_num in sorted(structure[book_num].keys()):
-                        lines.append(f"\n## Act {act_num}\n")
-
-                        for scene in sorted(
-                                structure[book_num][act_num],
-                                key=lambda x: x['scene_num']
-                        ):
-                            scene_path = scene['path']
-                            lines.append(f"\n### {scene_path.stem}\n")
-
-                            try:
-                                content = scene_path.read_text(encoding='utf-8')
-                                lines.append(content)
-                                lines.append("\n")
-                            except IOError as e:
-                                logger.error(f"Error reading {scene_path}: {e}")
-                                raise
-
-                            pbar.update(1)
-                            if self.progress_callback:
-                                self.progress_callback("Combining scenes", pbar.n, total_scenes)
-
-            combined_path.write_text("\n".join(lines), encoding='utf-8')
-            return combined_path
-
-        except Exception as e:
-            logger.error(f"Error creating combined markdown: {e}")
-            return None
-
-    def compile_to_format(
-            self,
-            input_path: Path,
-            output_path: Path,
-            format_name: str
-    ) -> bool:
-        """
-        Compile markdown to a specific format using pandoc.
-
-        Args:
-            input_path: Path to input markdown
-            output_path: Path for output file
-            format_name: Output format name
-
-        Returns:
-            bool: True if compilation successful
-
-        Raises:
-            CompilationError: If compilation fails
-        """
-        format_args = self.config.get_format_args(format_name)
-        base_args = ['pandoc', str(input_path), '-o', str(output_path)]
-        command = base_args + format_args
-
-        try:
-            result = subprocess.run(
-                command,
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=self.config.timeout
-            )
-            return True
-        except subprocess.SubprocessError as e:
-            error_msg = e.stderr if hasattr(e, 'stderr') else str(e)
-            raise CompilationError(f"Pandoc error for {format_name}: {error_msg}")
-        except subprocess.TimeoutExpired:
-            raise CompilationError(
-                f"Compilation timeout after {self.config.timeout} seconds"
-            )
-
-    def compile_manuscript(self, structure: Dict) -> Tuple[bool, List[str]]:
-        """
-        Compile manuscript to all specified formats.
-
-        Args:
-            structure: Book structure dictionary
-
-        Returns:
-            Tuple[bool, List[str]]: Success status and list of created files
-
-        Raises:
-            CompilationError: If compilation fails
-            InvalidStructureError: If structure is invalid
-        """
-        self._validate_structure(structure)
-        self.config.validate_formats()
-        self.config.output_dir.mkdir(exist_ok=True)
-        created_files = []
-
-        try:
-            temp_dir = self._prepare_temp_dir()
-            combined_md = self.create_combined_markdown(structure, temp_dir)
-
-            if not combined_md:
-                raise CompilationError("Failed to create combined markdown")
-
-            with tqdm(total=len(self.config.formats), desc="Compiling formats") as pbar:
-                for fmt in self.config.formats:
-                    output_path = self.config.output_dir / f"manuscript.{fmt}"
-                    logger.info(f"Compiling to {fmt}...")
-
-                    try:
-                        self.compile_to_format(combined_md, output_path, fmt)
-                        created_files.append(str(output_path))
-                        logger.info(f"Successfully created {output_path}")
-                    except CompilationError as e:
-                        logger.error(str(e))
-                        raise
-
-                    pbar.update(1)
-                    if self.progress_callback:
-                        self.progress_callback("Compiling formats", pbar.n, len(self.config.formats))
-
-            return True, created_files
-
-        except Exception as e:
-            logger.error(f"Compilation failed: {e}")
-            return False, created_files
-
-        finally:
-            self._cleanup_temp_dir()
+        return generated_files
 
 
 def compile_manuscript(
         structure: Dict,
-        formats: Optional[List[str]] = None,
-        extra_args: Optional[Dict[str, List[str]]] = None,
-        timeout: int = 300,
-        progress_callback: Optional[Callable[[str, int, int], None]] = None
-) -> Tuple[bool, List[str]]:
+        formats: List[str],
+        output_dir: Path,
+        config: Dict
+) -> Tuple[bool, List[Path]]:
     """
-    Convenience function to compile manuscript.
+    Compile manuscript from structure to specified formats.
 
     Args:
         structure: Book structure dictionary
         formats: List of output formats
-        extra_args: Format-specific pandoc arguments
-        timeout: Compilation timeout in seconds
-        progress_callback: Optional callback for progress updates
+        output_dir: Output directory path
+        config: Configuration dictionary
 
     Returns:
-        Tuple[bool, List[str]]: Success status and list of created files
+        Tuple[bool, List[Path]]: Success status and list of generated files
+
+    Raises:
+        CompilationError: If compilation fails
     """
-    config = CompilationConfig(formats=formats, extra_args=extra_args, timeout=timeout)
-    compiler = ManuscriptCompiler(config, progress_callback)
-    return compiler.compile_manuscript(structure)
+    compiler = DocumentCompiler(config)
+    generated_files = []
+
+    try:
+        # Combine all scenes into single markdown
+        content = []
+
+        with tqdm(total=sum(len(acts) for acts in structure.values()),
+                  desc="Combining scenes") as pbar:
+            for book_num in sorted(structure.keys()):
+                content.append(f"\n# Book {book_num}\n")
+
+                for act_num in sorted(structure[book_num].keys()):
+                    content.append(f"\n## Act {act_num}\n")
+
+                    for scene in sorted(
+                            structure[book_num][act_num],
+                            key=lambda x: x['scene_num']
+                    ):
+                        scene_path = scene['path']
+                        content.append(f"\n### {scene_path.stem}\n")
+
+                        try:
+                            scene_content = Path(scene_path).read_text(encoding='utf-8')
+                            content.append(scene_content)
+                            content.append("\n")
+                        except IOError as e:
+                            logger.error(f"Error reading {scene_path}: {e}")
+                            raise CompilationError(f"Failed to read scene: {e}")
+
+                    pbar.update(1)
+
+        # Compile combined content
+        combined_content = "\n".join(content)
+        generated_files = compiler.compile_manuscript(
+            combined_content,
+            formats,
+            output_dir
+        )
+
+        return len(generated_files) > 0, generated_files
+
+    except Exception as e:
+        logger.error(f"Compilation failed: {e}")
+        return False, generated_files
 
 
 def batch_compile(
         structure: Dict,
         formats: Optional[List[str]] = None,
-        extra_args: Optional[Dict[str, List[str]]] = None,
         retries: int = 2,
-        timeout: int = 300,
-        progress_callback: Optional[Callable[[str, int, int], None]] = None
+        config: Optional[Dict] = None
 ) -> Tuple[bool, List[str]]:
     """
     Compile manuscript with retry logic.
 
     Args:
         structure: Book structure dictionary
-        formats: List of output formats
-        extra_args: Format-specific pandoc arguments
+        formats: List of output formats (default: from config)
         retries: Number of retry attempts
-        timeout: Compilation timeout in seconds
-        progress_callback: Optional callback for progress updates
+        config: Optional configuration override
 
     Returns:
         Tuple[bool, List[str]]: Success status and list of created files
+
+    Example:
+        >>> structure = {
+        ...     1: {  # Book 1
+        ...         1: [  # Act 1
+        ...             {
+        ...                 'path': 'scenes/scene1.md',
+        ...                 'scene_num': 1
+        ...             }
+        ...         ]
+        ...     }
+        ... }
+        >>> success, files = batch_compile(structure, formats=['pdf', 'docx'])
     """
+    from ..utils.config_loader import get_config
+
+    config = config or get_config()
+    formats = formats or config.get('pandoc_output_formats', ['docx', 'pdf'])
+    output_dir = Path(config.get('compiled_dir', 'Compiled'))
     created_files = []
 
     for attempt in range(retries + 1):
@@ -488,11 +535,11 @@ def batch_compile(
         success, files = compile_manuscript(
             structure,
             formats,
-            extra_args,
-            timeout,
-            progress_callback
+            output_dir,
+            config
         )
-        created_files.extend(files)
+
+        created_files.extend([str(f) for f in files])
 
         if success:
             return True, created_files
@@ -505,7 +552,57 @@ def batch_compile(
     return False, created_files
 
 
+# Example default configuration
+DEFAULT_CONFIG = {
+    'document_style': {
+        'body_font': "'-apple-system', BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif",
+        'heading_font': "'-apple-system', BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif",
+        'code_font': "'Courier New', monospace",
+        'font_size': '12pt',
+        'paper_format': 'letter',
+        'margin_top': '1in',
+        'margin_right': '1in',
+        'margin_bottom': '1in',
+        'margin_left': '1in',
+        'heading_color': '#000000',
+        'text_color': '#000000',
+        'link_color': '#0366d6',
+        'code_background': '#f6f8fa'
+    },
+    'pandoc_output_formats': ['docx', 'pdf'],
+    'compiled_dir': 'Compiled'
+}
+
 if __name__ == "__main__":
+    # Example usage
     import doctest
 
     doctest.testmod()
+
+    # Example structure
+    example_structure = {
+        1: {  # Book 1
+            1: [  # Act 1
+                {
+                    'path': Path('scenes/scene1.md'),
+                    'scene_num': 1
+                }
+            ]
+        }
+    }
+
+    # Example compilation
+    try:
+        success, files = batch_compile(
+            example_structure,
+            formats=['pdf', 'docx'],
+            config=DEFAULT_CONFIG
+        )
+
+        if success:
+            print(f"Successfully created: {', '.join(files)}")
+        else:
+            print("Compilation failed")
+
+    except CompilationError as e:
+        print(f"Error: {e}")

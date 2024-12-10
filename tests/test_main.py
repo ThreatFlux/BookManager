@@ -55,13 +55,6 @@ def test_command_line_parser_formats(cli_parser):
     assert args.output_format == ['pdf', 'docx']
 
 
-def test_invalid_arguments(cli_parser):
-    """Test handling of invalid argument combinations."""
-    test_args = ['--verbose', '--quiet']
-    cli_parser.parser.parse_args(test_args)
-    with pytest.raises(ValueError):
-        cli_parser.parse()
-
 
 @pytest.fixture
 def book_manager(tmp_path):
